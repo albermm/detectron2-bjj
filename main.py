@@ -16,7 +16,7 @@ args = parser.parse_args()
 
 
 
-predictor = Detector()
+predictor = Detector(model_type="KP")
 
 
 
@@ -31,3 +31,5 @@ if __name__ == "__main__":
     # Write the frame to the output image
     output_image_path = args.out
     cv2.imwrite(output_image_path, out_frame_seg)
+
+
