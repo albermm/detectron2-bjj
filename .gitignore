@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# Ignore Python bytecode files
+__pycache__/
+
+# Ignore detectron2 folder
+detectron2/
+
+
 # Distribution / packaging
 .Python
 build/
