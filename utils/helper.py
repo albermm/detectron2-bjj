@@ -52,10 +52,12 @@ class Detector:
         out_frame = image.copy()
         out_frame_seg = np.zeros(out_frame.shape, dtype=out_frame.dtype)
 
-        # Visualize the instance predictions
-        viz = Visualizer(out_frame[:, :, ::-1], metadata=MetadataCatalog.get(self.cfg.DATASETS.TRAIN[0]),
-                         instance_mode=ColorMode.IMAGE_BW)
-        output = viz.draw_instance_predictions(outputs.to("cpu"))
+
+        #visualizer without the instance_mode=ColorMode.IMAGE_BW
+        v = Visualizer(out_frame[:,:,::-1], MetadataCatalog.get(self.cfg.DATASETS.TRAIN[0]), scale=1.5,
+                    instance_mode=ColorMode.IMAGE_BW)
+        output = v.draw_instance_predictions(outputs.to("cpu"))
+        out_frame_seg = output.get_image()[:, :, ::-1]
 
         # Update out_frame_seg with the visualized result
         out_frame_seg = output.get_image()[:, :, ::-1]
