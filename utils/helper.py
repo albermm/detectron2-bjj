@@ -68,7 +68,10 @@ class Detector:
 
         return out_frame_seg, outputs
 
-    def onImage(self, image_path):
+    def onImage(self, input_path, output_path):
+        image_path = input_path
+        output_path = output_path
+
         image = cv2.imread(image_path)
         out_frame = image.copy()
         out_frame_seg, outputs = self.predict(image)
@@ -76,14 +79,19 @@ class Detector:
         print("Instances Tensor:")
         print(outputs)
 
+        cv2.imwrite(output_path, out_frame_seg)
         return out_frame, out_frame_seg # Placeholder for consistency
 
-    def onVideo(self, video_path, output_path="output_video.avi"):
+    def onVideo(self, input_path, output_path):
+        video_path = input_path
+        output_path = output_path
+
         cap = cv2.VideoCapture(video_path)
+        
 
         if not cap.isOpened():
             print("Error opening the video file...")
-            return
+            return None
 
         # Get video information
         fps = cap.get(cv2.CAP_PROP_FPS)
@@ -103,10 +111,10 @@ class Detector:
             if not ret:
                 break
 
-            out_frame, outputs = self.predict(frame)
+            out_frame_seg, outputs = self.predict(frame)
 
             # Write the frame to the output video
-            out.write(out_frame)
+            out.write(out_frame_seg)
 
             done += 1
             percent = int((done / n_frames) * 100)
