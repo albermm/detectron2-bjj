@@ -127,5 +127,5 @@ class Detector:
         cap.release()
         out.release()
 
-        print(f"\nProcessed video saved at: {output_path}")
+
         return output_path
