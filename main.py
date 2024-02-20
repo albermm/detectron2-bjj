@@ -27,7 +27,7 @@ if __name__ == "__main__":
         pass
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
-        processed_video_path = predictor.onVideo(input_path)
+        processed_video_path = predictor.onVideo(input_path, output_path)
 
         # Check if video processing was successful
         if processed_video_path:
@@ -36,7 +36,7 @@ if __name__ == "__main__":
             print("Video processing failed.")
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
         # Process image
-        out_frame, out_frame_seg = predictor.onImage(input_path)
+        out_frame, out_frame_seg = predictor.onImage(input_path, output_path)
 
         # Save the segmented frame to the output path
         cv2.imwrite(output_path, out_frame_seg)
