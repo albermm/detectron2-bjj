@@ -9,51 +9,39 @@ def load_annotations(file_path):
         annotations = json.load(f)
     return annotations
 
-def prepare_data(annotations):
+import numpy as np
+
+def prepare_data(annotations, max_keypoints=18):
     X = []
     y = []
-    
-    # Print a sample of annotations
-    num_samples_to_print = 5
-    print(f"Printing {num_samples_to_print} annotations as a sample:")
-    for idx, annotation in enumerate(annotations[:num_samples_to_print]):
-        print(f"Annotation {idx + 1}: {annotation}")
 
     for annotation in annotations:
-        # Check for the presence of both "pose1" and "pose2"
-        if "pose1" in annotation and "pose2" in annotation:
-            # Handle both poses as needed
-            pose1 = np.array(annotation["pose1"]).flatten()
-            pose2 = np.array(annotation["pose2"]).flatten()
-            # Combine or handle them based on your requirements
-            combined_pose = np.concatenate((pose1, pose2))
-        elif "pose1" in annotation:
-            combined_pose = np.array(annotation["pose1"]).flatten()
-        elif "pose2" in annotation:
-            combined_pose = np.array(annotation["pose2"]).flatten()
-        else:
-            # Handle the case where neither "pose1" nor "pose2" is present
-            continue
+        pose1 = np.array(annotation.get("pose1", [])).flatten()
+        pose2 = np.array(annotation.get("pose2", [])).flatten()
 
-        # Assuming 'position' is the label for the position of the athlete
-        position = annotation["position"]
-        
-        # Append the flattened pose data and position label to X and y
+        # Combine pose1 and pose2
+        combined_pose = np.concatenate((pose1, pose2))
+
+        # Ensure a fixed size by padding or truncating
+        if len(combined_pose) < 2 * max_keypoints:
+            combined_pose = np.pad(combined_pose, (0, 2 * max_keypoints - len(combined_pose)))
+        elif len(combined_pose) > 2 * max_keypoints:
+            combined_pose = combined_pose[:2 * max_keypoints]
+
         X.append(combined_pose)
-        y.append(position)
-    
+        y.append(annotation["position"])
+
     X = np.array(X)
-    y = np.array(y)
-    
     return X, y
+
 
 
 def train_model(X, y):
     # Split the data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Train a logistic regression model (you can use a more sophisticated model)
-    model = LogisticRegression()
+    # Train a logistic regression model
+    model = LogisticRegression(max_iter=1000)  # Increase max_iter as needed
     model.fit(X_train, y_train)
 
     # Predict on the test set
