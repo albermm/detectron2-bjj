@@ -51,7 +51,7 @@ def train_model(X, y):
     accuracy = accuracy_score(y_test, y_pred)
     print(f"Model Accuracy: {accuracy * 100:.2f}%")
 
-    return model
+    return model, scaler
 
 # Load annotations from the file
 annotations = load_annotations("/content/annotations.json")
