@@ -12,19 +12,41 @@ def load_annotations(file_path):
 def prepare_data(annotations):
     X = []
     y = []
+    
+    # Print a sample of annotations
+    num_samples_to_print = 5
+    print(f"Printing {num_samples_to_print} annotations as a sample:")
+    for idx, annotation in enumerate(annotations[:num_samples_to_print]):
+        print(f"Annotation {idx + 1}: {annotation}")
 
     for annotation in annotations:
-      
+        # Check for the presence of both "pose1" and "pose2"
+        if "pose1" in annotation and "pose2" in annotation:
+            # Handle both poses as needed
+            pose1 = np.array(annotation["pose1"]).flatten()
+            pose2 = np.array(annotation["pose2"]).flatten()
+            # Combine or handle them based on your requirements
+            combined_pose = np.concatenate((pose1, pose2))
+        elif "pose1" in annotation:
+            combined_pose = np.array(annotation["pose1"]).flatten()
+        elif "pose2" in annotation:
+            combined_pose = np.array(annotation["pose2"]).flatten()
+        else:
+            # Handle the case where neither "pose1" nor "pose2" is present
+            continue
 
-        pose1 = np.array(annotation["Pose1"]).flatten()
-        pose2 = np.array(annotation["Pose2"]).flatten()
-        combined_pose = np.concatenate((pose1, pose2))
-        position = annotation["Position"]
-
+        # Assuming 'position' is the label for the position of the athlete
+        position = annotation["position"]
+        
+        # Append the flattened pose data and position label to X and y
         X.append(combined_pose)
         y.append(position)
+    
+    X = np.array(X)
+    y = np.array(y)
+    
+    return X, y
 
-    return np.array(X), np.array(y)
 
 def train_model(X, y):
     # Split the data into training and testing sets
@@ -45,7 +67,7 @@ def train_model(X, y):
 
 # Load annotations from the file
 annotations = load_annotations("/content/annotations.json")
-print(f"annotations {annotations}")
+
 # Prepare data for training
 X, y = prepare_data(annotations)
 
