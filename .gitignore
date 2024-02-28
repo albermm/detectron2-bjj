@@ -12,6 +12,9 @@ __pycache__/
 # Ignore detectron2 folder
 detectron2/
 
+#ignore annotations json
+annotations.json
+
 
 # Distribution / packaging
 .Python
