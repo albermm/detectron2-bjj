@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
+import joblib
 
 def load_annotations(file_path):
     with open(file_path, 'r') as f:
@@ -50,6 +51,11 @@ def train_model(X, y):
     # Evaluate the model
     accuracy = accuracy_score(y_test, y_pred)
     print(f"Model Accuracy: {accuracy * 100:.2f}%")
+
+
+    # Save the trained model
+    joblib.dump(model, 'trained_model.joblib')
+    print("Model saved successfully.")
 
     return model
 
