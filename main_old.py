@@ -1,10 +1,9 @@
+# main.py
 from argparse import ArgumentParser
-from utils.kp_detect import Detector
-from utils.matching import match_keypoints, assign_players
+from utils.helper import Detector
 import cv2
-import numpy as np
 
-def main():
+if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument(
         "--input", type=str, help="Set the input path to the video, image, or YouTube link", required=True
@@ -17,9 +16,7 @@ def main():
     )
     args = parser.parse_args()
 
-    # Initialize predictor and load trained model
     predictor = Detector(model_type=args.model_type)
-    trained_model = None  # Load your trained model here
 
     input_path = args.input
     output_path = args.out
@@ -30,21 +27,11 @@ def main():
         pass
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
-        predictions = predictor.onVideo(input_path, output_path)
+        processed_video_path = predictor.onVideo(input_path, output_path)
 
         # Check if video processing was successful
-        if predictions:
-            print(f"Processed video saved at: {output_path}")
-
-            # Load annotations from the file
-            annotations = []  # Load your annotations here
-
-            # Match keypoints and assign players
-            matching_result = match_keypoints(trained_model, annotations, predictions)
-
-            # Now 'matching_result' contains a summary of matches for each frame
-            # Analyze 'matching_result' to evaluate the model's performance
-
+        if processed_video_path:
+            print(f"Processed video saved at: {processed_video_path}")
         else:
             print("Video processing failed.")
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
@@ -56,6 +43,3 @@ def main():
         print(f"Processed image saved at: {output_path}")
     else:
         print("Unsupported input format. Please provide a video (.mp4, .avi, .mov), an image (.jpg, .jpeg, .png), or a YouTube link.")
-
-if __name__ == "__main__":
-    main()
