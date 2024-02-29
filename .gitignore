@@ -15,7 +15,6 @@ detectron2/
 #ignore annotations json
 annotations.json
 
-
 # Distribution / packaging
 .Python
 build/
