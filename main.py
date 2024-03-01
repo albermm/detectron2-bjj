@@ -1,6 +1,8 @@
 from argparse import ArgumentParser
 from utils.kp_detect import Detector
-from utils.matching import match_keypoints, assign_players
+from utils.matching import match_keypoints
+#from utils.assign_players import assign_players
+from utils.model_trainer import load_annotations
 import cv2
 import numpy as np
 
@@ -19,8 +21,9 @@ def main():
 
     # Initialize predictor and load trained model
     predictor = Detector(model_type=args.model_type)
-    trained_model = None  # Load your trained model here
-
+    trained_model = '/content/trained_model.joblib'  # Load your trained model here
+    json_file_path = '/content/annotations.json'
+    annotations = load_annotations(json_file_path)    
     input_path = args.input
     output_path = args.out
 
@@ -30,18 +33,18 @@ def main():
         pass
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
-        predictions = predictor.onVideo(input_path, output_path)
+        predictions, outputs = predictor.onVideo(input_path, output_path)
 
         # Check if video processing was successful
         if predictions:
             print(f"Processed video saved at: {output_path}")
 
             # Load annotations from the file
-            annotations = []  # Load your annotations here
+            #annotations = '/content/annotations.json'  # Load your annotations here
 
             # Match keypoints and assign players
-            matching_result = match_keypoints(trained_model, annotations, predictions)
-
+            matching_result = match_keypoints(trained_model, annotations, outputs)
+            print(f'matches from comparison of positions {matching_result}')
             # Now 'matching_result' contains a summary of matches for each frame
             # Analyze 'matching_result' to evaluate the model's performance
 
@@ -49,13 +52,16 @@ def main():
             print("Video processing failed.")
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
         # Process image
-        out_frame, out_frame_seg = predictor.onImage(input_path, output_path)
+        out_frame, outputs= predictor.onImage(input_path, output_path)
 
         # Save the segmented frame to the output path
-        cv2.imwrite(output_path, out_frame_seg)
+        cv2.imwrite(output_path, out_frame)
         print(f"Processed image saved at: {output_path}")
-    else:
-        print("Unsupported input format. Please provide a video (.mp4, .avi, .mov), an image (.jpg, .jpeg, .png), or a YouTube link.")
 
+        if outputs:
+          matching_result = match_keypoints(trained_model, annotations, outputs)
+          print(f'matches from comparison of positions {matching_result}')
+
+        
 if __name__ == "__main__":
     main()

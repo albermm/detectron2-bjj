@@ -75,3 +75,4 @@ X, y = prepare_data(annotations)
 
 # Train the model
 trained_model = train_model(X, y)
+

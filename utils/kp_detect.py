@@ -65,10 +65,10 @@ class Detector:
         output_path = output_path
 
         image = cv2.imread(image_path)
-        out_frame, out_frame = self.process_frame(image)
+        out_frame, outputs = self.process_frame(image)
 
         cv2.imwrite(output_path, out_frame)
-        return out_frame, out_frame
+        return out_frame, outputs
 
     def onVideo(self, input_path, output_path):
         video_path = input_path
@@ -97,7 +97,7 @@ class Detector:
             if not ret:
                 break
 
-            out_frame, out_frame = self.process_frame(frame)
+            out_frame, outputs = self.process_frame(frame)
 
             # Write the frame to the output video
             out.write(out_frame)
