@@ -71,8 +71,8 @@ def train_model(X, y):
 #annotations = load_annotations("/content/annotations.json")
 
 # Prepare data for training
-X, y = prepare_data(annotations)
+#X, y = prepare_data(annotations)
 
 # Train the model
-trained_model = train_model(X, y)
+#trained_model = train_model(X, y)
 

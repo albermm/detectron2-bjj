@@ -68,6 +68,8 @@ class Detector:
 
         return out_frame_seg, outputs
 
+
+
     def onImage(self, input_path, output_path):
         image_path = input_path
         output_path = output_path
@@ -110,6 +112,8 @@ class Detector:
             ret, frame = cap.read()
             if not ret:
                 break
+
+            
 
             out_frame_seg, outputs = self.predict(frame)
 

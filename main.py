@@ -1,11 +1,12 @@
 import json
 from argparse import ArgumentParser
 from utils.kp_detect import Detector
-from utils.matching import match_keypoints
+#from utils.matching import match_keypoints
 #from utils.assign_players import assign_players
-from utils.model_trainer import load_annotations
+#from utils.model_trainer import load_annotations
 import cv2
 import numpy as np
+
 
 def main():
     parser = ArgumentParser()
@@ -22,12 +23,11 @@ def main():
 
     # Initialize predictor and load trained model
     predictor = Detector(model_type=args.model_type)
-    trained_model = '/content/trained_model.joblib'  # Load your trained model here
-    json_file_path = '/content/annotations.json'
-    annotations = load_annotations(json_file_path)    
+    trained_model = '/content/detectron2-bjj/trained_model.joblib'  # Load your trained model here
+    #json_file_path = '/content/annotations.json'
+    #annotations = load_annotations(json_file_path)    
     input_path = args.input
     output_path = args.out
-    outputs_path = "/content/outputs.json"
 
     if input_path.lower().startswith('https://www.youtube.com'):
         # Process YouTube video
@@ -36,7 +36,7 @@ def main():
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
         predictions = predictor.onVideo(input_path, output_path)
-
+        
         # Check if video processing was successful
         if predictions:
             print(f"Processed video saved at: {output_path}")
@@ -45,7 +45,7 @@ def main():
             #annotations = '/content/annotations.json'  # Load your annotations here
 
             # Match keypoints and assign players
-            matching_result = match_keypoints(trained_model, annotations, outputs)
+            #matching_result = match_keypoints(trained_model, annotations, outputs)
             print(f'matches from comparison of positions {matching_result}')
             # Now 'matching_result' contains a summary of matches for each frame
             # Analyze 'matching_result' to evaluate the model's performance
@@ -61,8 +61,8 @@ def main():
         print(f"Processed image saved at: {output_path}")
 
         # Save the outputs to a JSON file
-        save_outputs(outputs, outputs_path)
-        print(f"Outputs saved at: {outputs_path}")
+        save_outputs(outputs, output_path)
+        print(f"Outputs saved at: {output_path}")
 
 def save_outputs(outputs, outputs_path):
         instances = outputs
@@ -95,4 +95,7 @@ def save_outputs(outputs, outputs_path):
             print(f"All pred keypoints saved to {json_filename}")
         else:
             print("The 'pred_keypoints' attribute is not present in the given Instances object.")
+
+if __name__ == "__main__":
+    main()
                 
