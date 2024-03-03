@@ -12,6 +12,7 @@ Returns:
 import cv2
 import torch
 import sys
+import json
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer, ColorMode
@@ -60,6 +61,42 @@ class Detector:
         # Convenience method to process a single frame
         return self.predict(frame)
 
+
+    def save_outputs(self, outputs):
+        instances = outputs
+
+        # Check if 'pred_keypoints' attribute exists in 'instances'
+        if hasattr(instances, 'pred_keypoints'):
+            # Extract pred_keypoints
+            pred_keypoints = instances.pred_keypoints
+
+            # List to store pred_keypoints for all instances
+            all_pred_keypoints = []
+
+            # Iterate through each instance
+            for i in range(len(pred_keypoints)):
+                # Access pred_keypoints for the current instance
+                instance_pred_keypoints = pred_keypoints[i]
+
+                # Convert pred_keypoints to a Python list
+                pred_keypoints_list = instance_pred_keypoints.tolist()
+
+                # Append to the list of all pred_keypoints
+                all_pred_keypoints.append(pred_keypoints_list)
+
+            # Save the result to a JSON file
+            json_filename = "all_pred_keypoints.json"
+
+            with open(json_filename, 'w') as json_file:
+                json.dump(all_pred_keypoints, json_file)
+
+            print(f"All pred keypoints saved to {json_filename}")
+        else:
+            print("The 'pred_keypoints' attribute is not present in the given Instances object.")
+
+        return all_pred_keypoints
+
+
     def onImage(self, input_path, output_path):
         image_path = input_path
         output_path = output_path
@@ -68,7 +105,12 @@ class Detector:
         out_frame, outputs = self.process_frame(image)
 
         cv2.imwrite(output_path, out_frame)
-        return out_frame, outputs
+        print(f"Processed image saved at: {output_path}")
+
+        # Save the outputs to a JSON file
+        all_pred_keypoints = self.save_outputs(outputs)
+        
+        return out_frame, outputs, all_pred_keypoints
 
     def onVideo(self, input_path, output_path):
         video_path = input_path

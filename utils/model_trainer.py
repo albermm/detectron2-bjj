@@ -65,7 +65,7 @@ def train_model(X, y):
     joblib.dump(model, 'trained_model.joblib')
     print("Model saved successfully.")
 
-    return model
+    return model, scaler
 
 # Load annotations from the file
 #annotations = load_annotations("/content/annotations.json")
