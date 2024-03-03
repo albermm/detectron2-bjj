@@ -1,6 +1,7 @@
 import json
 from argparse import ArgumentParser
 from utils.kp_detect import Detector
+from utils.find_position import find_position
 #from utils.matching import match_keypoints
 #from utils.assign_players import assign_players
 #from utils.model_trainer import load_annotations
@@ -33,15 +34,17 @@ def main():
         # Process YouTube video
         # (You can implement this part based on your previous modifications)
         pass
-        
+
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
         out_frame, outputs, all_pred_keypoints = predictor.onVideo(input_path, output_path)
 
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
-        # Process image
+        # Process image to detect Key points
         out_frame, outputs, all_pred_keypoints = predictor.onImage(input_path, output_path)
-
+        # Call find_position function and store the result
+        predicted_position = find_position(all_pred_keypoints)
+        print(f"Predicted Position: {predicted_position}")
 
 
 
