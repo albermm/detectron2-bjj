@@ -18,6 +18,7 @@ from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
+from utils.find_position import find_position, find_positions_video
 
 class Detector:
     def __init__(self, model_type="OD"):
@@ -85,16 +86,19 @@ class Detector:
                 all_pred_keypoints.append(pred_keypoints_list)
 
             # Save the result to a JSON file
-            json_filename = "all_pred_keypoints.json"
+            #json_filename = "all_pred_keypoints.json"
 
-            with open(json_filename, 'w') as json_file:
-                json.dump(all_pred_keypoints, json_file)
+            #with open(json_filename, 'w') as json_file:
+             #   json.dump(all_pred_keypoints, json_file)
 
-            print(f"All pred keypoints saved to {json_filename}")
+            #print(f"All pred keypoints saved to {json_filename}")
+            #print(f' los keypoints son: {all_pred_keypoints}')
+            return all_pred_keypoints
+        
         else:
             print("The 'pred_keypoints' attribute is not present in the given Instances object.")
 
-        return all_pred_keypoints
+        
 
 
     def onImage(self, input_path, output_path):
@@ -112,48 +116,63 @@ class Detector:
         
         return out_frame, outputs, all_pred_keypoints
 
-    def onVideo(self, input_path, output_path):
-        video_path = input_path
-        output_path = output_path
+    def process_video(self, video_path, output_path):
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                print("Error opening the video file...")
+                return None
 
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            print("Error opening the video file...")
-            return None
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            print(f'num frames {n_frames}')
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Get video information
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        n_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # Prepare VideoWriter for output video
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            out_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        # Create VideoWriter for output
-        fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            # List to store detected positions
+            positions_list = []
 
-        # Process each frame
-        done = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+            done = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            out_frame, outputs = self.process_frame(frame)
+                # Process each frame
+                out_frame, outputs = self.process_frame(frame)
 
-            # Write the frame to the output video
-            out.write(out_frame)
+                # Save the frame with predictions
+                out_video.write(out_frame)
+                
+                # Extract keypoints for the current frame
+                frame_keypoints = self.save_outputs(outputs)
 
-            done += 1
-            percent = int((done / n_frames) * 100)
-            sys.stdout.write("\rProgress: [{}{}] {}%".format("=" * percent, " " * (100 - percent), percent))
-            sys.stdout.flush()
+                # If the save_outputs function returns keypoints, proceed to find the position
+                if frame_keypoints:
+                    predicted_position = find_position(frame_keypoints)
+                    
+                    positions_list.append({"frame_number": done, "keypoints": frame_keypoints, "position": predicted_position})
+                    print(f"Frame {done} - Position: {predicted_position}")
+                else:
+                    # Handle the case when keypoints are not available for the current frame
+                    print(f"Keypoints not available for frame {done}")
+                # Find position for the current frame using your existing logic
+                #predicted_position = find_position(frame_keypoints)
 
-        # Release video capture and writer
-        cap.release()
-        out.release()
+                # Append the detected position to the list
+                #positions_list.append({"frame_number": done, "keypoints": frame_keypoints.tolist(), "position": predicted_position.tolist()})
 
-        return output_path
+                done += 1
 
+            # Release video capture and writer
+            cap.release()
+            out_video.release()
+            return positions_list
+
+            # Enrich the annotations JSON file with new data
+            #self.enrich_annotations(annotations_path, positions_list)
 
 
