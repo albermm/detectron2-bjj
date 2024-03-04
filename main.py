@@ -37,7 +37,7 @@ def main():
 
     elif input_path.lower().endswith(('.mp4', '.avi', '.mov')):
         # Process video
-        out_frame, outputs, all_pred_keypoints = predictor.onVideo(input_path, output_path)
+        postions_list = predictor.process_video_with_keyframes(input_path, output_path)
 
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
         # Process image to detect Key points
