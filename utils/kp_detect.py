@@ -16,6 +16,7 @@ import json
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.utils.video_visualizer import VideoVisualizer
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from utils.find_position import find_position, find_positions_video
@@ -53,14 +54,11 @@ class Detector:
         )
         output = v.draw_instance_predictions(outputs.to("cpu"))
 
+
         # Update frame with the visualized result
         out_frame = output.get_image()[:, :, ::-1]
 
         return out_frame, outputs
-
-    def process_frame(self, frame):
-        # Convenience method to process a single frame
-        return self.predict(frame)
 
 
     def save_outputs(self, outputs):
@@ -106,7 +104,7 @@ class Detector:
         output_path = output_path
 
         image = cv2.imread(image_path)
-        out_frame, outputs = self.process_frame(image)
+        out_frame, outputs = self.predict(image)
 
         cv2.imwrite(output_path, out_frame)
         print(f"Processed image saved at: {output_path}")
@@ -132,6 +130,9 @@ class Detector:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             out_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
+            # Create a VideoVisualizer
+            visualizer = VideoVisualizer(MetadataCatalog.get(self.cfg.DATASETS.TRAIN[0]), ColorMode.IMAGE)
+
             # List to store detected positions
             positions_list = []
 
@@ -142,7 +143,7 @@ class Detector:
                     break
 
                 # Process each frame
-                out_frame, outputs = self.process_frame(frame)
+                out_frame, outputs = self.predict(frame)
 
                 # Save the frame with predictions
                 out_video.write(out_frame)
