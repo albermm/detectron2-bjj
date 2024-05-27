@@ -17,6 +17,8 @@ annotations.json
 
 #ignore old files
 main_old.py
+utils/trainer.py
+utils/helper.py
 
 # Distribution / packaging
 .Python
