@@ -67,35 +67,6 @@ class Detector:
         return out_frame, outputs
 
 
-    def process_frame_with_smoothing(self, frame, alpha=0.5):
-        # Convenience method to process a single frame with temporal smoothing
-        out_frame, outputs = self.predict(frame)
-        self.last_outputs = outputs
-        
-        if hasattr(self, 'last_outputs') and outputs is not None:
-            # Calculate mean confidence and set keyframe threshold
-            confidence_scores = outputs.scores
-            mean_confidence = sum(confidence_scores) / len(confidence_scores)
-            keyframe_threshold = self.keyframe_threshold_percentage * mean_confidence
-
-            # Apply temporal smoothing using a simple moving average
-            smoothed_keypoints = (
-                alpha * np.array(outputs.pred_keypoints) + (1 - alpha) * np.array(self.last_outputs.pred_keypoints)
-            )
-
-            # Update last_outputs for the next frame
-            self.last_outputs = outputs
-
-            # Check if the frame is a keyframe based on the calculated threshold
-            if self.is_keyframe(outputs, keyframe_threshold):
-                print("Keyframe detected!")
-
-            return outputs
-        else:
-            # Handle the case when outputs are None or last_outputs is not initialized
-            print("Outputs are None or last_outputs not initialized for frame.")
-            return None
-
     def is_keyframe(self, outputs, threshold=None):
         if threshold is None:
             threshold = self.keyframe_threshold_percentage
@@ -222,6 +193,39 @@ class Detector:
 
             # Enrich the annotations JSON file with new data
             #self.enrich_annotations(annotations_path, positions_list)
+
+#### Experiemntal code to implement temporal smoothing, and identify kepoints. 
+# The reason for this code is because processing video created complexities like too many positions whilst not much variation between frames, etc.
+# This code os not in use right now.
+
+    def process_frame_with_smoothing(self, frame, alpha=0.5):
+        #  method to process a single frame with temporal smoothing
+        out_frame, outputs = self.predict(frame)
+        self.last_outputs = outputs
+        
+        if hasattr(self, 'last_outputs') and outputs is not None:
+            # Calculate mean confidence and set keyframe threshold
+            confidence_scores = outputs.scores
+            mean_confidence = sum(confidence_scores) / len(confidence_scores)
+            keyframe_threshold = self.keyframe_threshold_percentage * mean_confidence
+
+            # Apply temporal smoothing using a simple moving average
+            smoothed_keypoints = (
+                alpha * np.array(outputs.pred_keypoints) + (1 - alpha) * np.array(self.last_outputs.pred_keypoints)
+            )
+
+            # Update last_outputs for the next frame
+            self.last_outputs = outputs
+
+            # Check if the frame is a keyframe based on the calculated threshold
+            if self.is_keyframe(outputs, keyframe_threshold):
+                print("Keyframe detected!")
+
+            return outputs
+        else:
+            # Handle the case when outputs are None or last_outputs is not initialized
+            print("Outputs are None or last_outputs not initialized for frame.")
+            return None
 
     def process_video_with_keyframes(self, video_path, output_path, keyframe_threshold=0.1):
           cap = cv2.VideoCapture(video_path)
