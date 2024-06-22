@@ -6,4 +6,3 @@ git+https://github.com/facebookresearch/detectron2.git
 
 
 
-PAT: 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
