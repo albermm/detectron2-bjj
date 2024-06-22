@@ -20,7 +20,7 @@ from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.utils.video_visualizer import VideoVisualizer
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
-from utils.find_position import find_position, find_positions_video
+#from find_position import find_position
 
 class Detector:
     def __init__(self, model_type="OD"):

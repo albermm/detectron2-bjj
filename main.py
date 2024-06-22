@@ -1,6 +1,6 @@
 import json
 from argparse import ArgumentParser
-from utils.kp_detect import Detector
+from utils.helper import Predictor
 from utils.find_position import find_position
 #from utils.matching import match_keypoints
 #from utils.assign_players import assign_players
@@ -17,14 +17,12 @@ def main():
     parser.add_argument(
         "--out", type=str, help="Set the output path to the video or image", required=True
     )
-    parser.add_argument(
-        "--model_type", type=str, help="Set the model type (OD, IS, KP)", required=True
-    )
+
     args = parser.parse_args()
 
     # Initialize predictor and load trained model
-    predictor = Detector(model_type=args.model_type)
-    trained_model = '/content/detectron2-bjj/trained_model.joblib'  # Load your trained model here
+    predictor = Predictor()
+    trained_model = '/content/trained_model.joblib'  # Load your trained model here
     #json_file_path = '/content/annotations.json'
     #annotations = load_annotations(json_file_path)    
     input_path = args.input
@@ -41,10 +39,11 @@ def main():
 
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
         # Process image to detect Key points
-        out_frame, outputs, all_pred_keypoints = predictor.onImage(input_path, output_path)
+        keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(input_path, output_path)
         # Call find_position function and store the result
-        predicted_position = find_position(all_pred_keypoints)
-        print(f"Predicted Position: {predicted_position}")
+        #predicted_position = find_position(all_pred_keypoints)
+        #print(f"Predicted Position: {predicted_position}")
+        print(f'Keypoints: {keypoints}', f'Densepose: {densepose}')
 
 
 
