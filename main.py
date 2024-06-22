@@ -22,7 +22,7 @@ def main():
 
     # Initialize predictor and load trained model
     predictor = Predictor()
-    trained_model = '/content/trained_model.joblib'  # Load your trained model here
+    trained_model = '/content/detectron2-bjj/trained_model.joblib'  # Load your trained model here
     #json_file_path = '/content/annotations.json'
     #annotations = load_annotations(json_file_path)    
     input_path = args.input
@@ -39,11 +39,14 @@ def main():
 
     elif input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
         # Process image to detect Key points
+        print("Call predictor onImage from helper")
         keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(input_path, output_path)
         # Call find_position function and store the result
         #predicted_position = find_position(all_pred_keypoints)
         #print(f"Predicted Position: {predicted_position}")
-        print(f'Keypoints: {keypoints}', f'Densepose: {densepose}')
+        print("returning from helper")
+        print("=======================")
+        #print(f'Keypoints: {keypoints}', f'Densepose: {densepose}')
 
 
 
