@@ -11,6 +11,8 @@ __pycache__/
 
 # Ignore detectron2 folder
 detectron2/
+old/
+ML Keys.pem
 
 #ignore annotations json
 annotations.json
@@ -49,6 +51,7 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+
 
 # Unit test / coverage reports
 htmlcov/
