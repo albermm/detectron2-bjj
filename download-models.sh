@@ -1,3 +1,3 @@
-curl https://dl.fbaipublicfiles.com/densepose/densepose_rcnn_R_50_FPN_s1x/165712039/model_final_162be9.pkl -o /detectron2-bjj/models/model_final_162be9.pkl
-curl https://raw.githubusercontent.com/facebookresearch/detectron2/main/projects/DensePose/configs/densepose_rcnn_R_50_FPN_s1x.yaml -o /detectron2-bjj/model_configs/densepose_rcnn_R_50_FPN_s1x.yaml
-curl https://raw.githubusercontent.com/facebookresearch/detectron2/main/projects/DensePose/configs/Base-DensePose-RCNN-FPN.yaml -o /detectron2-bjj/model_configs/Base-DensePose-RCNN-FPN.yaml
+curl -o models/model_final_162be9.pkl https://dl.fbaipublicfiles.com/detectron2/ImageNetPretrained/MSRA/R-50.pkl
+curl -o model_configs/densepose_rcnn_R_50_FPN_s1x.yaml https://dl.fbaipublicfiles.com/detectron2/configs/DensePose_R_50_FPN_s1x.yaml
+curl -o model_configs/Base-DensePose-RCNN-FPN.yaml https://dl.fbaipublicfiles.com/detectron2/configs/Base-DensePose-RCNN-FPN.yaml
