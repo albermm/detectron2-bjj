@@ -1,4 +1,5 @@
 import cv2
+import os
 import torch
 import json
 import numpy as np
@@ -40,8 +41,15 @@ class Predictor:
         
         # Load DensePose model config and pretrained model
         add_densepose_config(self.cfg_dp)
-        self.cfg_dp.merge_from_file("/detectron2-bjj/model_configs/densepose_rcnn_R_50_FPN_s1x.yaml")
-        self.cfg_dp.MODEL.WEIGHTS = "detectron2-bjj/models/model_final_162be9.pkl"
+        #self.cfg_dp.merge_from_file("/model_configs/densepose_rcnn_R_50_FPN_s1x.yaml")
+        #self.cfg_dp.MODEL.WEIGHTS = "/models/model_final_162be9.pkl"
+        #Update paths to be relative to the current script location
+        script_dir = os.path.dirname(__file__)
+        model_configs_path = os.path.join(script_dir, 'model_configs', 'densepose_rcnn_R_50_FPN_s1x.yaml')
+        models_path = os.path.join(script_dir, 'models', 'model_final_162be9.pkl')
+
+        self.cfg_dp.merge_from_file(model_configs_path)
+        self.cfg_dp.MODEL.WEIGHTS = models_path
         self.cfg_dp.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         self.cfg_dp.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
         self.predictor_dp = DefaultPredictor(self.cfg_dp)
