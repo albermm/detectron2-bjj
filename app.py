@@ -1,11 +1,12 @@
+import os
 import boto3
 from flask import Flask, request, jsonify
 from io import BytesIO
 from PIL import Image
-import base64
-import main
-import os
+import json
 from dotenv import load_dotenv
+import cv2
+from utils.helper import Predictor
 
 load_dotenv()
 
@@ -24,6 +25,8 @@ s3 = boto3.client(
     region_name=S3_REGION
 )
 
+predictor = Predictor()
+
 def upload_to_s3(file_name, file_content, bucket, object_name=None):
     if object_name is None:
         object_name = file_name
@@ -40,22 +43,28 @@ def process_image():
     file = request.files['image']
     img = Image.open(file.stream)
 
-    # Process the image using your main.py and helper.py functions
-    keypoints, annotated_image = main.process_image(img)
+    # Process the image using your helper functions
+    keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(file.filename, 'output')
 
     # Convert annotated image to bytes
-    img_io = BytesIO()
-    annotated_image.save(img_io, 'PNG')
-    img_io.seek(0)
+    keypoint_io = BytesIO()
+    densepose_io = BytesIO()
+    Image.fromarray(cv2.cvtColor(keypoint_frame, cv2.COLOR_BGR2RGB)).save(keypoint_io, 'PNG')
+    Image.fromarray(cv2.cvtColor(densepose_frame, cv2.COLOR_BGR2RGB)).save(densepose_io, 'PNG')
+    keypoint_io.seek(0)
+    densepose_io.seek(0)
 
     # Upload original image and annotated image to S3
     original_img_url = upload_to_s3(file.filename, file.stream, S3_BUCKET)
-    annotated_img_url = upload_to_s3(f"annotated_{file.filename}", img_io, S3_BUCKET)
+    annotated_keypoint_img_url = upload_to_s3(f"annotated_keypoints_{file.filename}", keypoint_io, S3_BUCKET)
+    annotated_densepose_img_url = upload_to_s3(f"annotated_densepose_{file.filename}", densepose_io, S3_BUCKET)
 
     response = {
         'keypoints': keypoints,
+        'densepose': densepose,
         'original_image_url': original_img_url,
-        'annotated_image_url': annotated_img_url
+        'annotated_keypoints_image_url': annotated_keypoint_img_url,
+        'annotated_densepose_image_url': annotated_densepose_img_url
     }
 
     return jsonify(response)

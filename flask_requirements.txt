@@ -1,0 +1,7 @@
+Flask
+boto3
+opencv-python-headless
+numpy
+torch
+detectron2
+python-dotenv
