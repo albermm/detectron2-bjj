@@ -47,6 +47,7 @@ class Predictor:
         #script_dir = os.path.dirname(__file__)
         #model_configs_path = os.path.join(script_dir, 'model_configs', 'densepose_rcnn_R_50_FPN_s1x.yaml')
         #models_path = os.path.join(script_dir, 'models', 'model_final_162be9.pkl')
+        models_path = "models/model_final_162be9.pkl"
         model_configs_path = "model_configs/densepose_rcnn_R_50_FPN_s1x.yml"
         self.cfg_dp.merge_from_file(model_configs_path)
 
