@@ -3,7 +3,6 @@ import boto3
 from flask import Flask, request, jsonify
 from io import BytesIO
 from PIL import Image
-import json
 from dotenv import load_dotenv
 import cv2
 from utils.helper import Predictor
@@ -11,15 +10,6 @@ from utils.helper import Predictor
 load_dotenv()
 
 app = Flask(__name__)
-
-
-@app.route('/')
-def home():
-    return 'This is the Flask app API'
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
-
 
 # AWS S3 Configuration
 S3_BUCKET = os.getenv('S3_BUCKET')
@@ -43,6 +33,10 @@ def upload_to_s3(file_name, file_content, bucket, object_name=None):
     s3.upload_fileobj(file_content, bucket, object_name)
 
     return f"https://{bucket}.s3.{S3_REGION}.amazonaws.com/{object_name}"
+
+@app.route('/')
+def home():
+    return 'This is the Flask app API'
 
 @app.route('/process_image', methods=['POST'])
 def process_image():
