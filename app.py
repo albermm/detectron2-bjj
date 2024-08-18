@@ -8,7 +8,7 @@ import uuid
 app = Flask(__name__)
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
-BUCKET_NAME = 'your-s3-bucket-name'
+BUCKET_NAME = 'bjj-pics'
 
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():

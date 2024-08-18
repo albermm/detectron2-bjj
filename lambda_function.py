@@ -7,7 +7,7 @@ from utils.helper import Predictor
 from utils.find_position import find_position
 
 s3_client = boto3.client('s3')
-BUCKET_NAME = 'your-s3-bucket-name'
+BUCKET_NAME = 'bjj-pics'
 
 def lambda_handler(event, context):
     # Get the uploaded file information
