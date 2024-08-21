@@ -14,6 +14,9 @@ detectron2/
 old/
 ML Keys.pem
 
+#Ignore MyApp folder
+MyApp/
+
 #ignore annotations json
 annotations.json
 
