@@ -22,7 +22,7 @@ def main():
 
     # Initialize predictor and load trained model
     predictor = Predictor()
-    trained_model = '/trained_model.joblib'  # Load your trained model here
+    trained_model = './trained_model.joblib'  # Load your trained model here
     #json_file_path = '/content/annotations.json'
     #annotations = load_annotations(json_file_path)    
     input_path = args.input
