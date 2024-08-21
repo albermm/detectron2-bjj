@@ -1,9 +1,13 @@
 import numpy as np
 import joblib
+import os
 
 def find_position(all_pred_keypoints):
     # Load the trained model
-    trained_model = joblib.load('/content/detectron2-bjj/trained_model.joblib')
+    model_path = os.path.join(os.path.dirname(__file__), '../trained_model.joblib')
+    
+    # Load the trained model
+    trained_model = joblib.load(model_path)
 
     # Extract keypoints for player1 and player2
     if len(all_pred_keypoints) >= 2:
