@@ -1,6 +1,7 @@
 torch
 numpy
 opencv-python
+scikit-learn
 git+https://github.com/facebookresearch/detectron2@main#subdirectory=projects/DensePose
 git+https://github.com/facebookresearch/detectron2.git
 

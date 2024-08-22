@@ -16,14 +16,28 @@ def lambda_handler(event, context):
         }
 
     # Call the EC2 API to process the image
-    ec2_url = "http://http://3.90.218.53:5000/process_image"
-    response = requests.post(ec2_url, json={'file_name': key})
-    response_data = response.json()
+    ec2_url = "http://54.165.110.106:5000/process_image"
+    try:
+        response = requests.post(ec2_url, json={'file_name': key})
+        response.raise_for_status()  # Check if the request was successful
+        response_data = response.json()
+        
+        # Handle the response as needed
+        print(f"EC2 response: {response_data}")
 
-    # Handle the response as needed
-    print(f"EC2 response: {response_data}")
-
+        # Check for success status
+        if response_data.get('status') == 'success':
+            message = 'Image processed successfully!'
+        else:
+            message = 'Image processing failed!'
+        
+    except requests.exceptions.RequestException as e:
+        # Handle any errors with the HTTP request
+        print(f"Request failed: {e}")
+        message = f"Image processing failed due to an error: {str(e)}"
+    
     return {
         'statusCode': 200,
-        'body': json.dumps('Processing complete!')
+        'body': json.dumps(message)
     }
+

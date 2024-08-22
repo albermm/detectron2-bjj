@@ -1,9 +1,8 @@
-# app.py on EC2
 from flask import Flask, request, jsonify
 import boto3
 from botocore.config import Config
 import uuid
-from utils.helper import Predictor
+from utils.helper import Predictor  # Assuming these are your utility functions
 from utils.find_position import find_position
 
 app = Flask(__name__)
@@ -36,7 +35,7 @@ def process_image():
     output_path = '/tmp/output'
     keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(local_file_name, output_path)
 
-    # Find position
+    # Find position (if necessary)
     predicted_position = find_position(keypoints)
 
     # Upload results back to S3
@@ -50,6 +49,26 @@ def process_image():
         'keypoints_file': keypoints_key,
         'densepose_file': densepose_key
     })
+
+@app.route('/get_result/<file_name>', methods=['GET'])
+def get_result(file_name):
+    bucket = BUCKET_NAME
+    keypoints_key = f"outputs/keypoints_{file_name}"
+    densepose_key = f"outputs/densepose_{file_name}"
+
+    try:
+        # Check if the files exist in S3
+        s3_client.head_object(Bucket=bucket, Key=keypoints_key)
+        s3_client.head_object(Bucket=bucket, Key=densepose_key)
+        return jsonify({
+            'keypoints_file': keypoints_key,
+            'densepose_file': densepose_key
+        })
+    except s3_client.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            return jsonify({'status': 'processing'})
+        else:
+            raise
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
