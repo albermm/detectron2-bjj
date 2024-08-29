@@ -1,0 +1,13 @@
+[Unit]
+Description=Gunicorn instance to serve your Flask app
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubbuntu
+WorkingDirectory=/home/ubuntu/detectron2-bjj
+Environment="PATH=/home/ubuntu/venv"
+ExecStart= /home/ubuntu/venv/bin/gunicorn --config /etc/gunicorn.conf.py
+
+[Install]
+WantedBy=multi-user.target

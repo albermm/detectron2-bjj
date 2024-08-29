@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
+import json
 import boto3
 from botocore.config import Config
 import uuid
-from utils.helper import Predictor  # Assuming these are your utility functions
+from utils.helper import Predictor  
 from utils.find_position import find_position
 
 app = Flask(__name__)
@@ -33,42 +34,64 @@ def process_image():
     # Process the image
     predictor = Predictor()
     output_path = '/tmp/output'
-    keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(local_file_name, output_path)
+    #keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(local_file_name, output_path)
+    keypoint_frame, keypoints = predictor.onImage(local_file_name, output_path)
 
-    # Find position (if necessary)
+
+    # Find position from keypoints
     predicted_position = find_position(keypoints)
 
     # Upload results back to S3
     keypoints_key = f"outputs/keypoints_{file_name}"
-    densepose_key = f"outputs/densepose_{file_name}"
+    #densepose_key = f"outputs/densepose_{file_name}"
     s3_client.upload_file(f'{output_path}_keypoints.jpg', bucket, keypoints_key)
-    s3_client.upload_file(f'{output_path}_densepose.jpg', bucket, densepose_key)
+    #s3_client.upload_file(f'{output_path}_densepose.jpg', bucket, densepose_key)
 
+    # Store metadata
+    metadata = {
+        'status': 'success',
+        'predicted_position': predicted_position,
+        'message': 'Processing completed successfully'
+    }
+    metadata_key = f"outputs/metadata_{file_name}.json"
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=metadata_key,
+        Body=json.dumps(metadata),
+        ContentType='application/json'
+    )
     return jsonify({
         'status': 'success',
         'keypoints_file': keypoints_key,
-        'densepose_file': densepose_key
+        'position': predicted_position
     })
 
 @app.route('/get_result/<file_name>', methods=['GET'])
 def get_result(file_name):
     bucket = BUCKET_NAME
     keypoints_key = f"outputs/keypoints_{file_name}"
-    densepose_key = f"outputs/densepose_{file_name}"
-
+    metadata_key = f"outputs/metadata_{file_name}.json"
+    #densepose_key = f"outputs/densepose_{file_name}"
     try:
-        # Check if the files exist in S3
+        # Check if the keypoints file exists in S3
         s3_client.head_object(Bucket=bucket, Key=keypoints_key)
-        s3_client.head_object(Bucket=bucket, Key=densepose_key)
+        
+        # Retrieve metadata (including predicted_position and status)
+        metadata_object = s3_client.get_object(Bucket=bucket, Key=metadata_key)
+        metadata = json.loads(metadata_object['Body'].read().decode('utf-8'))
+        #s3_client.head_object(Bucket=bucket, Key=densepose_key)
         return jsonify({
             'keypoints_file': keypoints_key,
-            'densepose_file': densepose_key
+            'status': metadata.get('status', 'success'),
+            'position': metadata.get('predicted_position'),
+            'message': metadata.get('message', '')
         })
     except s3_client.exceptions.ClientError as e:
         if e.response['Error']['Code'] == '404':
             return jsonify({'status': 'processing'})
         else:
-            raise
+            return jsonify({'status': 'error', 'message': str(e)})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
