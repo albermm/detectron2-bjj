@@ -10,17 +10,6 @@ app = Flask(__name__)
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
-
-@app.route('/get_upload_url', methods=['GET'])
-def get_upload_url():
-    file_name = f"inputs/{uuid.uuid4()}.jpg"
-    presigned_url = s3_client.generate_presigned_url(
-        'put_object',
-        Params={'Bucket': BUCKET_NAME, 'Key': file_name},
-        ExpiresIn=3600
-    )
-    return jsonify({'upload_url': presigned_url, 'file_name': file_name})
-
 @app.route('/process_image', methods=['POST'])
 def process_image():
     data = request.json
@@ -34,20 +23,23 @@ def process_image():
     # Process the image
     predictor = Predictor()
     output_path = '/tmp/output'
-    #keypoint_frame, densepose_frame, keypoints, densepose = predictor.onImage(local_file_name, output_path)
-    keypoint_frame, keypoints = predictor.onImage(local_file_name, output_path)
+    keypoint_frame, keypoints, predicted_position = predictor.onImage(local_file_name, output_path)
 
-
-    # Find position from keypoints
-    predicted_position = find_position(keypoints)
+    if keypoints is None:
+        return jsonify({'status': 'error', 'message': 'Failed to process image'}), 500
 
     # Upload results back to S3
     keypoints_key = f"outputs/keypoints_{file_name}"
-    #densepose_key = f"outputs/densepose_{file_name}"
-    s3_client.upload_file(f'{output_path}_keypoints.jpg', bucket, keypoints_key)
-    #s3_client.upload_file(f'{output_path}_densepose.jpg', bucket, densepose_key)
+    keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
+    
+    # Upload keypoint frame image
+    s3_client.upload_file(f'{output_path}_keypoints.jpg', bucket, keypoint_image_key)
 
-    # Store metadata
+    # Upload keypoints JSON
+    keypoints_json_key = f"outputs/keypoints_{file_name}.json"
+    s3_client.upload_file(f'{output_path}_keypoints.json', bucket, keypoints_json_key)
+
+    # Store metadata JSON
     metadata = {
         'status': 'success',
         'predicted_position': predicted_position,
@@ -60,11 +52,20 @@ def process_image():
         Body=json.dumps(metadata),
         ContentType='application/json'
     )
+    
+    # Construct URLs for S3 objects
+    s3_base_url = f"https://{bucket}.s3.amazonaws.com/"
+    keypoint_image_url = s3_base_url + keypoint_image_key
+    keypoints_json_url = s3_base_url + keypoints_json_key
+    metadata_url = s3_base_url + metadata_key
+    
     return jsonify({
         'status': 'success',
-        'keypoints_file': keypoints_key,
-        'position': predicted_position
+        'keypoint_image_url': keypoint_image_url,
+        'keypoints_json_url': keypoints_json_url,
+        'predicted_position': predicted_position
     })
+
 
 @app.route('/get_result/<file_name>', methods=['GET'])
 def get_result(file_name):
