@@ -1,0 +1,60 @@
+openapi: 3.0.0
+info:
+  title: BJJ Image Processing API
+  version: 1.0.0
+  description: API for uploading and processing BJJ images
+
+paths:
+  /get_upload_url:
+    get:
+      summary: Get a pre-signed URL for image upload
+      operationId: getUploadUrl
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:    
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                  file_name:
+                    type: string
+      x-amazon-apigateway-integration:
+        uri: http://your-ec2-instance-ip:5000/get_upload_url
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        type: http_proxy
+
+  /get_result:
+    get:
+      summary: Get the processing result for an image
+      operationId: getResult
+      parameters:
+        - name: file_name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:    
+              schema:
+                type: object
+                properties:
+                  keypoints_file:
+                    type: string
+                  status:
+                    type: string
+                  position:
+                    type: string
+                  message:
+                    type: string
+      x-amazon-apigateway-integration:
+        uri: http://your-ec2-instance-ip:5000/get_result
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        type: http_proxy
