@@ -22,7 +22,7 @@ paths:
                   file_name:
                     type: string
       x-amazon-apigateway-integration:
-        uri: http://your-ec2-instance-ip:5000/get_upload_url
+        uri: http://52.72.247.7:5000/get_upload_url
         passthroughBehavior: when_no_match
         httpMethod: GET
         type: http_proxy
@@ -54,7 +54,7 @@ paths:
                   message:
                     type: string
       x-amazon-apigateway-integration:
-        uri: http://your-ec2-instance-ip:5000/get_result
+        uri: http://52.72.247.7:5000/get_result
         passthroughBehavior: when_no_match
         httpMethod: GET
         type: http_proxy
