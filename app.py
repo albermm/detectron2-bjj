@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import json
 import boto3
 from botocore.config import Config
@@ -7,6 +8,7 @@ from utils.helper import Predictor
 from utils.find_position import find_position
 
 app = Flask(__name__)
+CORS(app)
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
