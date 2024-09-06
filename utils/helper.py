@@ -46,6 +46,7 @@ class Predictor:
         self.predictor_kp = DefaultPredictor(self.cfg_kp)
         
         # Load DensePose model config and pretrained model
+        '''
         add_densepose_config(self.cfg_dp)
         model_configs_path = os.path.join(base_dir, config['densepose_model']['config'])
         models_path = os.path.join(base_dir, config['densepose_model']['weights'])
@@ -57,7 +58,7 @@ class Predictor:
         self.predictor_dp = DefaultPredictor(self.cfg_dp)
         self.extractor = DensePoseResultExtractor()
         self.visualizer = DensePoseResultsFineSegmentationVisualizer()
-
+        '''
     def predict_keypoints(self, frame):
         print("called predict_kepoints")
         with torch.no_grad():
