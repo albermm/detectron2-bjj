@@ -8,7 +8,12 @@ from utils.helper import Predictor
 from utils.find_position import find_position
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+from botocore.client import Config
+import boto3
+import uuid
+from flask import jsonify
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
@@ -16,12 +21,28 @@ BUCKET_NAME = 'bjj-pics'
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
     file_name = f"inputs/{uuid.uuid4()}.jpg"
-    presigned_url = s3_client.generate_presigned_url(
-        'put_object',
-        Params={'Bucket': BUCKET_NAME, 'Key': file_name},
+    job_id = str(uuid.uuid4())  # Generate a unique job ID
+    
+    presigned_url = s3_client.generate_presigned_post(
+        Bucket=BUCKET_NAME,
+        Key=file_name,
+        Fields={
+            'x-amz-meta-job-id': job_id  # Set custom metadata
+        },
+        Conditions=[
+            {'x-amz-meta-job-id': job_id}  # Ensure the metadata is set during upload
+        ],
         ExpiresIn=3600
     )
-    return jsonify({'upload_url': presigned_url, 'file_name': file_name})
+    
+    return jsonify({
+        'presigned_post': presigned_url,
+        'file_name': file_name,
+        'job_id': job_id
+    })
+
+
+
 @app.route('/process_image', methods=['POST'])
 def process_image():
     data = request.json
@@ -104,7 +125,7 @@ def get_result(file_name):
             return jsonify({'status': 'processing'})
         else:
             return jsonify({'status': 'error', 'message': str(e)})
-
+    pass
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
