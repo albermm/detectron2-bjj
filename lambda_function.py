@@ -5,7 +5,7 @@ import os
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table(os.environ['DYNAMODB_TABLE_NAME'])
+table = dynamodb.Table(os.environ['BJJ_App_Table'])
 
 def lambda_handler(event, context):
     bucket = event['Records'][0]['s3']['bucket']['name']
