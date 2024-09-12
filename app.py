@@ -102,33 +102,24 @@ def process_image():
         'job_id': job_id
     })
 
-    
-@app.route('/get_result/<file_name>', methods=['GET'])
-def get_result(file_name):
-    bucket = BUCKET_NAME
-    keypoints_key = f"outputs/keypoints_{file_name}"
-    metadata_key = f"outputs/metadata_{file_name}.json"
-    #densepose_key = f"outputs/densepose_{file_name}"
+
+@app.route('/get_job_status/<job_id>', methods=['GET'])
+def get_job_status(job_id):
     try:
-        # Check if the keypoints file exists in S3
-        s3_client.head_object(Bucket=bucket, Key=keypoints_key)
+        response = dynamodb_table.get_item(Key={'job_id': job_id})
+        item = response.get('Item')
         
-        # Retrieve metadata (including predicted_position and status)
-        metadata_object = s3_client.get_object(Bucket=bucket, Key=metadata_key)
-        metadata = json.loads(metadata_object['Body'].read().decode('utf-8'))
-        #s3_client.head_object(Bucket=bucket, Key=densepose_key)
+        if not item:
+            return jsonify({'error': 'Job not found'}), 404
+        
         return jsonify({
-            'keypoints_file': keypoints_key,
-            'status': metadata.get('status', 'success'),
-            'position': metadata.get('predicted_position'),
-            'message': metadata.get('message', '')
+            'status': item['status'],
+            'image_url': item.get('image_url'),
+            'keypoints_url': item.get('keypoints_url'),
+            'position': item.get('position')
         })
-    except s3_client.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            return jsonify({'status': 'processing'})
-        else:
-            return jsonify({'status': 'error', 'message': str(e)})
-    pass
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
