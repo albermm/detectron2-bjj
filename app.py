@@ -47,6 +47,7 @@ def get_upload_url():
 def process_image():
     data = request.json
     file_name = data['file_name']
+    job_id = data.get('job_id')
     bucket = BUCKET_NAME
 
     # Download the image from S3
@@ -76,7 +77,8 @@ def process_image():
     metadata = {
         'status': 'success',
         'predicted_position': predicted_position,
-        'message': 'Processing completed successfully'
+        'message': 'Processing completed successfully',
+        'job_id': job_id
     }
     metadata_key = f"outputs/metadata_{file_name}.json"
     s3_client.put_object(
@@ -96,10 +98,11 @@ def process_image():
         'status': 'success',
         'keypoint_image_url': keypoint_image_url,
         'keypoints_json_url': keypoints_json_url,
-        'predicted_position': predicted_position
+        'predicted_position': predicted_position,
+        'job_id': job_id
     })
 
-
+    
 @app.route('/get_result/<file_name>', methods=['GET'])
 def get_result(file_name):
     bucket = BUCKET_NAME
