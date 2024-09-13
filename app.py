@@ -2,11 +2,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
 import boto3
+from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from botocore.config import Config
 import uuid
 from utils.helper import Predictor  
 from utils.find_position import find_position
+
+#Load environment variabbles from .env
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
