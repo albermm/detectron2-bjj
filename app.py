@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
 import boto3
+from botocore.exceptions import ClientError
 from botocore.config import Config
 import uuid
 from utils.helper import Predictor  
@@ -10,13 +11,14 @@ from utils.find_position import find_position
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-from botocore.client import Config
-import boto3
-import uuid
-from flask import jsonify
+
+
+
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
+dynamodb = boto3.resource('dynamodb')
+dynamodb_table = dynamodb.Table('BJJ_App_Table')
 
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
