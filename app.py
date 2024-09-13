@@ -18,7 +18,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
 dynamodb = boto3.resource('dynamodb')
-dynamodb_table = dynamodb.Table('BJJ_App_Table')
+dynamodb_table = dynamodb.Table('DYNAMODB_TABLE_NAME')
 
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
