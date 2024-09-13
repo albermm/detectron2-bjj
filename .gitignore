@@ -182,3 +182,5 @@ cython_debug/
 MyApp/
 MyApp/
 .env
+.DS_Store
+.DS_Store
