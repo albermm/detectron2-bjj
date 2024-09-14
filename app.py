@@ -26,7 +26,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
 BUCKET_NAME = 'bjj-pics'
 dynamodb = boto3.resource('dynamodb')
-dynamodb_table = dynamodb.Table('DYNAMODB_TABLE_NAME')
+dynamodb_table = dynamodb.Table('BJJ_App_Table')
 
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
@@ -133,18 +133,22 @@ def process_image():
     })
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
+    logger.info(f"Retrieving job status for job_id: {job_id}")
     try:
         # Construct the key for querying DynamoDB
         key = {
-            'PK': f"JOB#{job_id}",
-            'SK': f"JOB#{job_id}"
+            'PK': job_id,
+            'SK': job_id
         }
 
         # Query DynamoDB
         response = dynamodb_table.get_item(Key=key)
+        logger.info(f"DynamoDB response: {response}")
+        
         item = response.get('Item')
         
         if not item:
+            logger.warning(f"Job not found for job_id: {job_id}")
             return jsonify({'error': 'Job not found'}), 404
         
         # Construct the response
@@ -154,13 +158,14 @@ def get_job_status(job_id):
             'keypoints_url': item.get('keypoints_url'),
             'position': item.get('position'),
             'job_id': item.get('job_id'),
-            'updatedAt': item.get('updatedAt')
+            'timestamp': item.get('timestamp')  # Changed from 'updatedAt' to 'timestamp'
         }
 
+        logger.info(f"Returning result for job_id {job_id}: {result}")
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error retrieving job status: {str(e)}")
+        logger.error(f"Error retrieving job status for job_id {job_id}: {str(e)}", exc_info=True)
         return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
 
 if __name__ == '__main__':
