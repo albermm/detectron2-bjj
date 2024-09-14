@@ -144,7 +144,7 @@ def get_job_status(job_id):
         }
 
         # Query DynamoDB
-        response = table.get_item(Key=key)
+        response = dynamodb_table.get_item(Key=key)
         print(f"DynamoDB response: {response}")  # Use print instead of logger
         
         item = response.get('Item')
@@ -169,7 +169,7 @@ def get_job_status(job_id):
     except Exception as e:
         print(f"Error retrieving job status for job_id {job_id}: {str(e)}")  # Use print instead of logger
         return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
-        
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
    
