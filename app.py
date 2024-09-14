@@ -8,6 +8,10 @@ from botocore.config import Config
 import uuid
 from utils.helper import Predictor  
 from utils.find_position import find_position
+import boto3
+from boto3.dynamodb.conditions import Key
+from datetime import datetime
+
 
 #Load environment variabbles from .env
 load_dotenv()
@@ -79,27 +83,47 @@ def process_image():
     keypoints_json_key = f"outputs/keypoints_{file_name}.json"
     s3_client.upload_file(f'{output_path}_keypoints.json', bucket, keypoints_json_key)
 
-    # Store metadata JSON
-    metadata = {
-        'status': 'success',
-        'predicted_position': predicted_position,
-        'message': 'Processing completed successfully',
-        'job_id': job_id
-    }
-    metadata_key = f"outputs/metadata_{file_name}.json"
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=metadata_key,
-        Body=json.dumps(metadata),
-        ContentType='application/json'
-    )
-    
     # Construct URLs for S3 objects
     s3_base_url = f"https://{bucket}.s3.amazonaws.com/"
     keypoint_image_url = s3_base_url + keypoint_image_key
     keypoints_json_url = s3_base_url + keypoints_json_key
-    metadata_url = s3_base_url + metadata_key
-    
+
+    # Prepare data for DynamoDB
+    current_time = datetime.utcnow().isoformat()
+    item = {
+        'PK': f"JOB#{job_id}",  # Assuming job_id is unique
+        'SK': f"JOB#{job_id}",
+        'status': 'success',
+        'position': predicted_position,
+        'job_id': job_id,
+        'image_url': keypoint_image_url,
+        'keypoints_url': keypoints_json_url,
+        'updatedAt': current_time
+    }
+
+    # Update DynamoDB
+    try:
+        response = dynamodb_table.update_item(
+            Key={'PK': item['PK'], 'SK': item['SK']},
+            UpdateExpression="SET #status = :status, #position = :position, image_url = :image_url, keypoints_url = :keypoints_url, updatedAt = :updatedAt",
+            ExpressionAttributeNames={
+                '#status': 'status',
+                '#position': 'position'
+            },
+            ExpressionAttributeValues={
+                ':status': item['status'],
+                ':position': item['position'],
+                ':image_url': item['image_url'],
+                ':keypoints_url': item['keypoints_url'],
+                ':updatedAt': item['updatedAt']
+            },
+            ReturnValues="UPDATED_NEW"
+        )
+        print(f"DynamoDB update successful: {response}")
+    except Exception as e:
+        print(f"Error updating DynamoDB: {str(e)}")
+        # Consider how you want to handle this error. You might want to return an error response or continue with the process.
+
     return jsonify({
         'status': 'success',
         'keypoint_image_url': keypoint_image_url,
@@ -107,8 +131,6 @@ def process_image():
         'predicted_position': predicted_position,
         'job_id': job_id
     })
-
-
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
     try:

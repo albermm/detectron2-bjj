@@ -21,7 +21,8 @@ def lambda_handler(event, context):
     # Retrieve the job ID from S3 object metadata
     try:
         response = s3_client.head_object(Bucket=bucket, Key=key)
-        job_id = response['Metadata'].get('job-id')
+        job_id = response['Metadata'].get('x-amz-meta-job-id')
+        print(f"job_id: {job_id}")
     except Exception as e:
         print(f"Error retrieving job ID: {str(e)}")
         job_id = None
