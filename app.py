@@ -11,7 +11,7 @@ from utils.find_position import find_position
 import boto3
 from boto3.dynamodb.conditions import Key
 from datetime import datetime
-
+import logging
 
 #Load environment variabbles from .env
 load_dotenv()
@@ -20,7 +20,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 
-
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
@@ -133,7 +135,7 @@ def process_image():
     })
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
-    logger.info(f"Retrieving job status for job_id: {job_id}")
+    print(f"Retrieving job status for job_id: {job_id}")  # Use print instead of logger
     try:
         # Construct the key for querying DynamoDB
         key = {
@@ -142,13 +144,13 @@ def get_job_status(job_id):
         }
 
         # Query DynamoDB
-        response = dynamodb_table.get_item(Key=key)
-        logger.info(f"DynamoDB response: {response}")
+        response = table.get_item(Key=key)
+        print(f"DynamoDB response: {response}")  # Use print instead of logger
         
         item = response.get('Item')
         
         if not item:
-            logger.warning(f"Job not found for job_id: {job_id}")
+            print(f"Job not found for job_id: {job_id}")  # Use print instead of logger
             return jsonify({'error': 'Job not found'}), 404
         
         # Construct the response
@@ -161,13 +163,13 @@ def get_job_status(job_id):
             'timestamp': item.get('timestamp')  # Changed from 'updatedAt' to 'timestamp'
         }
 
-        logger.info(f"Returning result for job_id {job_id}: {result}")
+        print(f"Returning result for job_id {job_id}: {result}")  # Use print instead of logger
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Error retrieving job status for job_id {job_id}: {str(e)}", exc_info=True)
+        print(f"Error retrieving job status for job_id {job_id}: {str(e)}")  # Use print instead of logger
         return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
-
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
    
