@@ -2,6 +2,7 @@ import boto3
 import requests
 import json
 import os
+import time
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -10,6 +11,8 @@ table = dynamodb.Table(os.environ['BJJ_App_Table'])
 def lambda_handler(event, context):
     bucket = event['Records'][0]['s3']['bucket']['name']
     key = event['Records'][0]['s3']['object']['key']
+
+    print(f"Processing file: {key} from bucket: {bucket}")
 
     # Skip processing for already processed images
     if key.startswith('outputs/'):
@@ -21,15 +24,15 @@ def lambda_handler(event, context):
     # Retrieve the job ID from S3 object metadata
     try:
         response = s3_client.head_object(Bucket=bucket, Key=key)
-        job_id = response['Metadata'].get('x-amz-meta-job-id')
-        print(f"job_id: {job_id}")
+        job_id = response['Metadata'].get('job-id')
+        print(f"Retrieved job_id: {job_id}")
     except Exception as e:
         print(f"Error retrieving job ID: {str(e)}")
-        job_id = None
+        job_id = f"auto-{int(time.time())}"
+        print(f"Generated auto job_id: {job_id}")
 
     # Update DynamoDB with initial status
-    if job_id:
-        update_dynamodb(job_id, 'PROCESSING', None, None, None)
+    update_dynamodb(job_id, 'PROCESSING', None, None, None)
 
     # Call the EC2 API to process the image
     ec2_url = "http://52.72.247.7:5000/process_image"
@@ -65,12 +68,10 @@ def lambda_handler(event, context):
     }
 
 def update_dynamodb(job_id, status, image_url, keypoints_url, position):
-    if not job_id:
-        print("No job ID provided, skipping DynamoDB update")
-        return
-
     try:
         item = {
+            'PK': job_id,  # Use job_id as the partition key
+            'SK': job_id,  # Use job_id as the sort key as well
             'job_id': job_id,
             'status': status,
             'timestamp': int(time.time())
