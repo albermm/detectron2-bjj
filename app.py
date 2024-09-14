@@ -134,20 +134,34 @@ def process_image():
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
     try:
-        response = dynamodb_table.get_item(Key={'job_id': job_id})
+        # Construct the key for querying DynamoDB
+        key = {
+            'PK': f"JOB#{job_id}",
+            'SK': f"JOB#{job_id}"
+        }
+
+        # Query DynamoDB
+        response = dynamodb_table.get_item(Key=key)
         item = response.get('Item')
         
         if not item:
             return jsonify({'error': 'Job not found'}), 404
         
-        return jsonify({
-            'status': item['status'],
+        # Construct the response
+        result = {
+            'status': item.get('status'),
             'image_url': item.get('image_url'),
             'keypoints_url': item.get('keypoints_url'),
-            'position': item.get('position')
-        })
+            'position': item.get('position'),
+            'job_id': item.get('job_id'),
+            'updatedAt': item.get('updatedAt')
+        }
+
+        return jsonify(result)
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error retrieving job status: {str(e)}")
+        return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
