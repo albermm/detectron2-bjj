@@ -41,10 +41,13 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:${AWS::us-east-1}:lambda:path/2015-03-31/functions/${arn:aws:lambda:us-east-1:211125430735:function:bjj-image-processor}/invocations
+        uri: http://52.72.247.7:5000/get_upload_url
+        responses:
+          default:
+            statusCode: "200"
         passthroughBehavior: when_no_match
-        httpMethod: POST
-        type: aws_proxy
+        httpMethod: GET
+        type: http_proxy
 
   /process_image:
     post:
@@ -85,10 +88,13 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations
+        uri: http://52.72.247.7:5000/process_image
+        responses:
+          default:
+            statusCode: "200"
         passthroughBehavior: when_no_match
         httpMethod: POST
-        type: aws_proxy
+        type: http_proxy
 
   /process_video:
     post:
@@ -125,10 +131,13 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations
+        uri: http://52.72.247.7:5000/process_video
+        responses:
+          default:
+            statusCode: "200"
         passthroughBehavior: when_no_match
         httpMethod: POST
-        type: aws_proxy
+        type: http_proxy
 
   /get_job_status/{job_id}:
     get:
@@ -175,10 +184,15 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations
+        uri: http://52.72.247.7:5000/get_job_status/{job_id}
+        responses:
+          default:
+            statusCode: "200"
+        requestParameters:
+          integration.request.path.job_id: method.request.path.job_id
         passthroughBehavior: when_no_match
-        httpMethod: POST
-        type: aws_proxy
+        httpMethod: GET
+        type: http_proxy
 
 components:
   securitySchemes:
@@ -190,7 +204,7 @@ components:
       x-amazon-apigateway-authorizer:
         type: cognito_user_pools
         providerARNs:
-          - arn:aws:cognito-idp:${AWS::Region}:${AWS::211125430735}:userpool/${us-east-1_QJJ74aa1b}
+          - arn:aws:cognito-idp:us-east-1:211125430735:userpool/us-east-1_QJJ74aa1b
 
 security:
   - CognitoAuth: []
