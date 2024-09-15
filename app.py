@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from shared_utils import (
-    s3_client, dynamodb_table, BUCKET_NAME, generate_job_id,
+    s3_client, dynamodb_table, generate_job_id,
     update_job_status, get_s3_url, validate_file_type, validate_user_id, logger, Config
 )
 from helper import Predictor, process_video_async
@@ -60,7 +60,7 @@ def get_upload_url():
         content_type = 'image/jpeg' if file_type == 'image' else 'video/mp4'
 
         presigned_url = s3_client.generate_presigned_post(
-            Bucket=BUCKET_NAME,
+            Bucket=Config.BUCKET_NAME,
             Key=file_name,
             Fields={
                 'x-amz-meta-job-id': job_id,
@@ -137,7 +137,7 @@ def process_image():
         user_id = data['user_id']
 
         local_file_name = '/tmp/image.jpg'
-        s3_client.download_file(BUCKET_NAME, file_name, local_file_name)
+        s3_client.download_file(Config.BUCKET_NAME, file_name, local_file_name)
 
         predictor = Predictor()
         output_path = '/tmp/output'
@@ -149,8 +149,8 @@ def process_image():
         keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
         keypoints_json_key = f"outputs/keypoints_{file_name}.json"
 
-        s3_client.upload_file(f'{output_path}_keypoints.jpg', BUCKET_NAME, keypoint_image_key)
-        s3_client.upload_file(f'{output_path}_keypoints.json', BUCKET_NAME, keypoints_json_key)
+        s3_client.upload_file(f'{output_path}_keypoints.jpg', Config.BUCKET_NAME, keypoint_image_key)
+        s3_client.upload_file(f'{output_path}_keypoints.json', Config.BUCKET_NAME, keypoints_json_key)
 
         keypoint_image_url = get_s3_url(keypoint_image_key)
         keypoints_json_url = get_s3_url(keypoints_json_key)
@@ -223,7 +223,7 @@ def process_video():
         update_job_status(job_id, user_id, 'PROCESSING', 'video', video_file_name)
 
         local_video_path = '/tmp/video.mp4'
-        s3_client.download_file(BUCKET_NAME, video_file_name, local_video_path)
+        s3_client.download_file(Config.BUCKET_NAME, video_file_name, local_video_path)
 
         output_path = '/tmp/output'
         
@@ -308,5 +308,3 @@ def get_job_status(job_id):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=Config.APP_PORT)
-
-# TODO: Implement unit tests for all API endpoints
