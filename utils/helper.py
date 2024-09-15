@@ -1,66 +1,28 @@
 import cv2
-import os
 import torch
 import json
 import numpy as np
-import yaml
+import pyarrow as pa
+import pyarrow.parquet as pq
+from datetime import datetime, timedelta
 from detectron2.utils.visualizer import Visualizer as DetectronVisualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
-import logging
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from densepose import add_densepose_config
-from densepose.vis.extractor import DensePoseResultExtractor
-from densepose.vis.densepose_results import DensePoseResultsFineSegmentationVisualizer
+from shared_utils import logger, s3_client, BUCKET_NAME, update_job_status
 from utils.find_position import find_position
-
-# Load configuration
-with open('config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
-
-class GetLogger:
-    @staticmethod
-    def logger(name):
-        logging.basicConfig(
-            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-        )
-        return logging.getLogger(name)
 
 class Predictor:
     def __init__(self):
         self.cfg_kp = get_cfg()
-        self.cfg_dp = get_cfg()
-        self.alpha = 0.5
-        self.last_outputs = None
-        self.out_video = None 
-
-        # Get the base directory
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # Load Keypoint model config and pretrained model
-        self.cfg_kp.merge_from_file(model_zoo.get_config_file(config['keypoint_model']['config']))
-        self.cfg_kp.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(config['keypoint_model']['weights'])
-        self.cfg_kp.MODEL.ROI_HEADS.SCORE_THRESH_TEST = config['keypoint_score_threshold']
+        self.cfg_kp.merge_from_file(model_zoo.get_config_file("COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"))
+        self.cfg_kp.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml")
+        self.cfg_kp.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
         self.cfg_kp.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         self.predictor_kp = DefaultPredictor(self.cfg_kp)
-        
-        # Load DensePose model config and pretrained model
-        '''
-        add_densepose_config(self.cfg_dp)
-        model_configs_path = os.path.join(base_dir, config['densepose_model']['config'])
-        models_path = os.path.join(base_dir, config['densepose_model']['weights'])
-        
-        self.cfg_dp.merge_from_file(model_configs_path)
-        self.cfg_dp.MODEL.WEIGHTS = models_path
-        self.cfg_dp.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-        self.cfg_dp.MODEL.ROI_HEADS.SCORE_THRESH_TEST = config['densepose_score_threshold']
-        self.predictor_dp = DefaultPredictor(self.cfg_dp)
-        self.extractor = DensePoseResultExtractor()
-        self.visualizer = DensePoseResultsFineSegmentationVisualizer()
-        '''
+
     def predict_keypoints(self, frame):
-        print("called predict_kepoints")
         with torch.no_grad():
             outputs = self.predictor_kp(frame)["instances"]
 
@@ -73,7 +35,6 @@ class Predictor:
         output = v.draw_instance_predictions(outputs.to("cpu"))
 
         out_frame = output.get_image()[:, :, ::-1]
-        print("outframe is ready and returned - end of predict_keypoints")
         return out_frame, outputs
 
     def save_keypoints(self, outputs):
@@ -82,10 +43,9 @@ class Predictor:
         if hasattr(instances, 'pred_keypoints'):
             pred_keypoints = instances.pred_keypoints
             all_pred_keypoints = [keypoints.tolist() for keypoints in pred_keypoints]
-            print(f'The keypoints are: {all_pred_keypoints}')
             return all_pred_keypoints
         else:
-            print("The 'pred_keypoints' attribute is not present in the given Instances object.")
+            logger.warning("The 'pred_keypoints' attribute is not present in the given Instances object.")
             return None
 
     def onImage(self, input_path, output_path):
@@ -108,5 +68,89 @@ class Predictor:
 
             return keypoint_frame, keypoints, predicted_position
         except Exception as e:
-            print(f"Error in onImage: {str(e)}")
+            logger.error(f"Error in onImage: {str(e)}")
             return None, None, None
+
+class VideoProcessor:
+    def __init__(self):
+        self.predictor = Predictor()
+
+    def process_video(self, video_path, output_path, job_id, user_id):
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        positions = []
+        current_position = None
+        start_time = None
+
+        for frame_number in range(frame_count):
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            timestamp = timedelta(seconds=frame_number / fps)
+            
+            _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+
+            if predicted_position != current_position:
+                if current_position is not None:
+                    positions.append({
+                        'position': current_position,
+                        'start_time': start_time,
+                        'end_time': timestamp,
+                        'player_id': 1  # Assuming single player for simplicity
+                    })
+                current_position = predicted_position
+                start_time = timestamp
+
+            if frame_number % 100 == 0:
+                progress = (frame_number + 1) / frame_count * 100
+                update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
+
+        cap.release()
+
+        # Add the last position
+        if current_position is not None:
+            positions.append({
+                'position': current_position,
+                'start_time': start_time,
+                'end_time': timedelta(seconds=frame_count / fps),
+                'player_id': 1
+            })
+
+        # Convert positions to Parquet
+        data = {
+            'job_id': [job_id] * len(positions),
+            'user_id': [user_id] * len(positions),
+            'player_id': [pos['player_id'] for pos in positions],
+            'position': [pos['position'] for pos in positions],
+            'start_time': [pos['start_time'].total_seconds() for pos in positions],
+            'end_time': [pos['end_time'].total_seconds() for pos in positions],
+            'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
+            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
+        }
+
+        table = pa.Table.from_pydict(data)
+        pq.write_table(table, f'{output_path}/{job_id}.parquet')
+
+        return positions
+
+def process_video_async(video_path, output_path, job_id, user_id):
+    try:
+        video_processor = VideoProcessor()
+        positions = video_processor.process_video(video_path, output_path, job_id, user_id)
+        
+        # Upload to S3
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
+        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
+
+        # Update DynamoDB with job completion status
+        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
+
+        return positions
+    except Exception as e:
+        logger.error(f"Error in process_video_async: {str(e)}")
+        update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
+        raise

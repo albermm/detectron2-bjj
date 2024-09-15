@@ -1,176 +1,157 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
-import boto3
-from dotenv import load_dotenv
-from botocore.exceptions import ClientError
-from botocore.config import Config
-import uuid
-from utils.helper import Predictor  
-from utils.find_position import find_position
-import boto3
-from boto3.dynamodb.conditions import Key
-from datetime import datetime
-import logging
-
-#Load environment variabbles from .env
-load_dotenv()
+import os
+from shared_utils import (
+    s3_client, dynamodb_table, BUCKET_NAME, generate_job_id,
+    update_job_status, get_s3_url, validate_file_type, validate_user_id, logger
+)
+from helper import Predictor, VideoProcessor
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
-BUCKET_NAME = 'bjj-pics'
-dynamodb = boto3.resource('dynamodb')
-dynamodb_table = dynamodb.Table('BJJ_App_Table')
-
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
-    file_name = f"inputs/{uuid.uuid4()}.jpg"
-    job_id = str(uuid.uuid4())  # Generate a unique job ID
-    
-    presigned_url = s3_client.generate_presigned_post(
-        Bucket=BUCKET_NAME,
-        Key=file_name,
-        Fields={
-            'x-amz-meta-job-id': job_id  # Set custom metadata
-        },
-        Conditions=[
-            {'x-amz-meta-job-id': job_id}  # Ensure the metadata is set during upload
-        ],
-        ExpiresIn=3600
-    )
-    
-    return jsonify({
-        'presigned_post': presigned_url,
-        'file_name': file_name,
-        'job_id': job_id
-    })
+    try:
+        file_type = request.args.get('file_type', 'image')
+        user_id = request.args.get('user_id')
 
+        validate_file_type(file_type)
+        validate_user_id(user_id)
 
+        file_extension = '.jpg' if file_type == 'image' else '.mp4'
+        file_name = f"inputs/{user_id}/{generate_job_id()}{file_extension}"
+        job_id = generate_job_id()
+        content_type = 'image/jpeg' if file_type == 'image' else 'video/mp4'
+
+        presigned_url = s3_client.generate_presigned_post(
+            Bucket=BUCKET_NAME,
+            Key=file_name,
+            Fields={
+                'x-amz-meta-job-id': job_id,
+                'x-amz-meta-user-id': user_id,
+                'Content-Type': content_type,
+            },
+            Conditions=[
+                {'x-amz-meta-job-id': job_id},
+                {'x-amz-meta-user-id': user_id},
+                ['content-length-range', 1, 100 * 1024 * 1024],
+                {'Content-Type': content_type},
+            ],
+            ExpiresIn=3600
+        )
+
+        update_job_status(job_id, user_id, 'PENDING', file_type, file_name)
+
+        return jsonify({
+            'presigned_post': presigned_url,
+            'file_name': file_name,
+            'job_id': job_id,
+            'user_id': user_id
+        })
+
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error in get_upload_url: {str(e)}")
+        return jsonify({'error': 'An error occurred while generating upload URL'}), 500
 
 @app.route('/process_image', methods=['POST'])
 def process_image():
-    data = request.json
-    file_name = data['file_name']
-    job_id = data.get('job_id')
-    bucket = BUCKET_NAME
-
-    # Download the image from S3
-    local_file_name = '/tmp/image.jpg'
-    s3_client.download_file(bucket, file_name, local_file_name)
-
-    # Process the image
-    predictor = Predictor()
-    output_path = '/tmp/output'
-    keypoint_frame, keypoints, predicted_position = predictor.onImage(local_file_name, output_path)
-
-    if keypoints is None:
-        return jsonify({'status': 'error', 'message': 'Failed to process image'}), 500
-
-    # Upload results back to S3
-    keypoints_key = f"outputs/keypoints_{file_name}"
-    keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
-    
-    # Upload keypoint frame image
-    s3_client.upload_file(f'{output_path}_keypoints.jpg', bucket, keypoint_image_key)
-
-    # Upload keypoints JSON
-    keypoints_json_key = f"outputs/keypoints_{file_name}.json"
-    s3_client.upload_file(f'{output_path}_keypoints.json', bucket, keypoints_json_key)
-
-    # Construct URLs for S3 objects
-    s3_base_url = f"https://{bucket}.s3.amazonaws.com/"
-    keypoint_image_url = s3_base_url + keypoint_image_key
-    keypoints_json_url = s3_base_url + keypoints_json_key
-
-    # Prepare data for DynamoDB
-    current_time = datetime.utcnow().isoformat()
-    item = {
-        'PK': f"JOB#{job_id}",  # Assuming job_id is unique
-        'SK': f"JOB#{job_id}",
-        'status': 'success',
-        'position': predicted_position,
-        'job_id': job_id,
-        'image_url': keypoint_image_url,
-        'keypoints_url': keypoints_json_url,
-        'updatedAt': current_time
-    }
-
-    # Update DynamoDB
     try:
-        response = dynamodb_table.update_item(
-            Key={'PK': item['PK'], 'SK': item['SK']},
-            UpdateExpression="SET #status = :status, #position = :position, image_url = :image_url, keypoints_url = :keypoints_url, updatedAt = :updatedAt",
-            ExpressionAttributeNames={
-                '#status': 'status',
-                '#position': 'position'
-            },
-            ExpressionAttributeValues={
-                ':status': item['status'],
-                ':position': item['position'],
-                ':image_url': item['image_url'],
-                ':keypoints_url': item['keypoints_url'],
-                ':updatedAt': item['updatedAt']
-            },
-            ReturnValues="UPDATED_NEW"
-        )
-        print(f"DynamoDB update successful: {response}")
-    except Exception as e:
-        print(f"Error updating DynamoDB: {str(e)}")
-        # Consider how you want to handle this error. You might want to return an error response or continue with the process.
+        data = request.json
+        file_name = data['file_name']
+        job_id = data['job_id']
+        user_id = data['user_id']
 
-    return jsonify({
-        'status': 'success',
-        'keypoint_image_url': keypoint_image_url,
-        'keypoints_json_url': keypoints_json_url,
-        'predicted_position': predicted_position,
-        'job_id': job_id
-    })
+        local_file_name = '/tmp/image.jpg'
+        s3_client.download_file(BUCKET_NAME, file_name, local_file_name)
+
+        predictor = Predictor()
+        output_path = '/tmp/output'
+        keypoint_frame, keypoints, predicted_position = predictor.onImage(local_file_name, output_path)
+
+        if keypoints is None:
+            raise ValueError('Failed to process image')
+
+        keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
+        keypoints_json_key = f"outputs/keypoints_{file_name}.json"
+
+        s3_client.upload_file(f'{output_path}_keypoints.jpg', BUCKET_NAME, keypoint_image_key)
+        s3_client.upload_file(f'{output_path}_keypoints.json', BUCKET_NAME, keypoints_json_key)
+
+        keypoint_image_url = get_s3_url(keypoint_image_key)
+        keypoints_json_url = get_s3_url(keypoints_json_key)
+
+        update_job_status(job_id, user_id, 'SUCCESS', 'image', file_name, predicted_position, keypoint_image_url)
+
+        return jsonify({
+            'status': 'success',
+            'keypoint_image_url': keypoint_image_url,
+            'keypoints_json_url': keypoints_json_url,
+            'predicted_position': predicted_position,
+            'job_id': job_id
+        })
+
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error in process_image: {str(e)}")
+        return jsonify({'error': 'An error occurred while processing the image'}), 500
+
+@app.route('/process_video', methods=['POST'])
+def process_video():
+    try:
+        data = request.json
+        video_file_name = data['video_file_name']
+        job_id = data['job_id']
+        user_id = data['user_id']
+
+        update_job_status(job_id, user_id, 'PROCESSING', 'video', video_file_name)
+
+        local_video_path = '/tmp/video.mp4'
+        s3_client.download_file(BUCKET_NAME, video_file_name, local_video_path)
+
+        output_path = '/tmp/output'
+        video_processor = VideoProcessor()
+        positions = video_processor.process_video(local_video_path, output_path, job_id, user_id)
+
+        s3_path = f'processed_data/user_id={user_id}/date={datetime.now().strftime("%Y-%m-%d")}/{job_id}.parquet'
+        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
+
+        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_file_name, s3_path=s3_path)
+
+        return jsonify({
+            'status': 'success',
+            'job_id': job_id,
+            'user_id': user_id,
+            's3_path': s3_path
+        })
+
+    except Exception as e:
+        logger.error(f"Error in process_video: {str(e)}")
+        update_job_status(job_id, user_id, 'FAILED', 'video', video_file_name)
+        return jsonify({'error': 'An error occurred while processing the video'}), 500
+
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
-    print(f"Retrieving job status for job_id: {job_id}")  # Use print instead of logger
     try:
-        # Construct the key for querying DynamoDB
-        key = {
-            'PK': job_id,
-            'SK': job_id
-        }
+        user_id = request.args.get('user_id')
+        validate_user_id(user_id)
 
-        # Query DynamoDB
-        response = dynamodb_table.get_item(Key=key)
-        print(f"DynamoDB response: {response}")  # Use print instead of logger
-        
+        response = dynamodb_table.get_item(Key={'PK': f"USER#{user_id}", 'SK': f"JOB#{job_id}"})
         item = response.get('Item')
         
         if not item:
-            print(f"Job not found for job_id: {job_id}")  # Use print instead of logger
             return jsonify({'error': 'Job not found'}), 404
         
-        # Construct the response
-        result = {
-            'status': item.get('status'),
-            'image_url': item.get('image_url'),
-            'keypoints_url': item.get('keypoints_url'),
-            'position': item.get('position'),
-            'job_id': item.get('job_id'),
-            'timestamp': item.get('timestamp')  # Changed from 'updatedAt' to 'timestamp'
-        }
+        return jsonify(item)
 
-        print(f"Returning result for job_id {job_id}: {result}")  # Use print instead of logger
-        return jsonify(result)
-
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
-        print(f"Error retrieving job status for job_id {job_id}: {str(e)}")  # Use print instead of logger
+        logger.error(f"Error in get_job_status: {str(e)}")
         return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-   
-
