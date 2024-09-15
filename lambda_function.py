@@ -3,6 +3,7 @@ import requests
 import json
 import os
 import time
+from botocore.exceptions import ClientError
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -11,7 +12,6 @@ table = dynamodb.Table(os.environ['BJJ_App_Table'])
 def lambda_handler(event, context):
     bucket = event['Records'][0]['s3']['bucket']['name']
     key = event['Records'][0]['s3']['object']['key']
-
     print(f"Processing file: {key} from bucket: {bucket}")
 
     # Skip processing for already processed images
@@ -21,67 +21,75 @@ def lambda_handler(event, context):
             'body': json.dumps('Skipping processed image')
         }
 
-    # Retrieve the job ID from S3 object metadata
+    # Retrieve the job ID and user ID from S3 object metadata
     try:
         response = s3_client.head_object(Bucket=bucket, Key=key)
         job_id = response['Metadata'].get('job-id')
-        print(f"Retrieved job_id: {job_id}")
-    except Exception as e:
-        print(f"Error retrieving job ID: {str(e)}")
+        user_id = response['Metadata'].get('user-id')
+        print(f"Retrieved job_id: {job_id}, user_id: {user_id}")
+    except ClientError as e:
+        print(f"Error retrieving metadata: {str(e)}")
         job_id = f"auto-{int(time.time())}"
-        print(f"Generated auto job_id: {job_id}")
+        user_id = "unknown"
+        print(f"Generated auto job_id: {job_id}, user_id: {user_id}")
+
+    # Determine file type
+    file_type = 'video' if key.lower().endswith(('.mp4', '.mov', '.avi')) else 'image'
 
     # Update DynamoDB with initial status
-    update_dynamodb(job_id, 'PROCESSING', None, None, None)
+    update_job_status(job_id, user_id, 'PROCESSING', file_type, key)
 
-    # Call the EC2 API to process the image
-    ec2_url = "http://52.72.247.7:5000/process_image"
+    # Call the EC2 API to process the file
+    ec2_url = "http://52.72.247.7:5000/process_image" if file_type == 'image' else "http://52.72.247.7:5000/process_video"
     try:
-        response = requests.post(ec2_url, json={'file_name': key, 'job_id': job_id})
+        response = requests.post(ec2_url, json={'file_name': key, 'job_id': job_id, 'user_id': user_id})
         response.raise_for_status()
         response_data = response.json()
         
         print(f"EC2 response: {response_data}")
-
-        if response_data.get('status') == 'success':
-            message = 'Image processed successfully!'
-            # Update DynamoDB with success status and results
-            update_dynamodb(
-                job_id,
-                'COMPLETED',
-                response_data.get('keypoint_image_url'),
-                response_data.get('keypoints_json_url'),
-                response_data.get('predicted_position')
-            )
+        if response_data.get('status') == 'success' or response_data.get('status') == 'processing':
+            message = f"{file_type.capitalize()} processing initiated successfully!"
+            # For images, we update with the results. For videos, we just update the status.
+            if file_type == 'image':
+                update_job_status(
+                    job_id,
+                    user_id,
+                    'COMPLETED',
+                    file_type,
+                    key,
+                    response_data.get('predicted_position'),
+                    response_data.get('keypoint_image_url')
+                )
+            else:
+                update_job_status(job_id, user_id, 'PROCESSING', file_type, key)
         else:
-            message = 'Image processing failed!'
-            update_dynamodb(job_id, 'FAILED', None, None, None)
+            message = f"{file_type.capitalize()} processing failed!"
+            update_job_status(job_id, user_id, 'FAILED', file_type, key)
         
     except requests.exceptions.RequestException as e:
         print(f"Request failed: {e}")
-        message = f"Image processing failed due to an error: {str(e)}"
-        update_dynamodb(job_id, 'FAILED', None, None, None)
+        message = f"{file_type.capitalize()} processing failed due to an error: {str(e)}"
+        update_job_status(job_id, user_id, 'FAILED', file_type, key)
     
     return {
         'statusCode': 200,
         'body': json.dumps(message)
     }
 
-def update_dynamodb(job_id, status, image_url, keypoints_url, position):
+def update_job_status(job_id, user_id, status, file_type, file_name, position=None, s3_path=None):
     try:
         item = {
-            'PK': job_id,  # Use job_id as the partition key
-            'SK': job_id,  # Use job_id as the sort key as well
-            'job_id': job_id,
+            'PK': f"USER#{user_id}",
+            'SK': f"JOB#{job_id}",
             'status': status,
-            'timestamp': int(time.time())
+            'file_type': file_type,
+            'file_name': file_name,
+            'updatedAt': int(time.time())
         }
-        if image_url:
-            item['image_url'] = image_url
-        if keypoints_url:
-            item['keypoints_url'] = keypoints_url
         if position:
             item['position'] = position
+        if s3_path:
+            item['s3_path'] = s3_path
 
         table.put_item(Item=item)
         print(f"DynamoDB updated for job {job_id}")

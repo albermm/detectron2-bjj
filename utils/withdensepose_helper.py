@@ -15,6 +15,7 @@ from detectron2.utils.video_visualizer import VideoVisualizer
 from densepose import add_densepose_config
 from densepose.vis.extractor import DensePoseResultExtractor
 from densepose.vis.densepose_results import DensePoseResultsFineSegmentationVisualizer
+from utils.find_position import find_position
 
 class GetLogger:
     @staticmethod
@@ -24,6 +25,7 @@ class GetLogger:
         )
         return logging.getLogger(name)
 
+trained_model = './trained_model.joblib'
 class Predictor:
     def __init__(self):
         self.cfg_kp = get_cfg()
@@ -156,20 +158,23 @@ class Predictor:
         image = cv2.imread(input_path)
 
         keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-        densepose_frame, densepose_seg, densepose_outputs = self.predict_densepose(image)
+        #densepose_frame, densepose_seg, densepose_outputs = self.predict_densepose(image)
 
         cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
-        cv2.imwrite(output_path + "_densepose.jpg", densepose_frame)
+        #cv2.imwrite(output_path + "_densepose.jpg", densepose_frame)
 
         keypoints = self.save_keypoints(keypoint_outputs)
-        densepose = self.save_densepose(densepose_outputs)
+        #densepose = self.save_densepose(densepose_outputs)
 
         with open(output_path + "_keypoints.json", 'w') as f:
             json.dump(keypoints, f)
-        with open(output_path + "_densepose.json", 'w') as f:
-            json.dump(densepose, f)
+        #with open(output_path + "_densepose.json", 'w') as f:
+        #    json.dump(densepose, f)
 
-        return keypoint_frame, densepose_frame, keypoints, densepose
+        predicted_position = find_position(all_pred_keypoints)
+
+        #return keypoint_frame, densepose_frame, keypoints, densepose
+        return keypoint_frame, keypoints, predicted_position
 
     def process_video(self, video_path, output_path):
         cap = cv2.VideoCapture(video_path)
