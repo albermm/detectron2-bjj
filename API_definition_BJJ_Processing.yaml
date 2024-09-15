@@ -41,7 +41,7 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations
+        uri: arn:aws:apigateway:${AWS::us-east-1}:lambda:path/2015-03-31/functions/${arn:aws:lambda:us-east-1:211125430735:function:bjj-image-processor}/invocations
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: aws_proxy
@@ -190,7 +190,7 @@ components:
       x-amazon-apigateway-authorizer:
         type: cognito_user_pools
         providerARNs:
-          - arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+          - arn:aws:cognito-idp:${AWS::Region}:${AWS::211125430735}:userpool/${us-east-1_QJJ74aa1b}
 
 security:
   - CognitoAuth: []
