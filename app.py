@@ -5,7 +5,8 @@ from shared_utils import (
     s3_client, dynamodb_table, BUCKET_NAME, generate_job_id,
     update_job_status, get_s3_url, validate_file_type, validate_user_id, logger
 )
-from helper import Predictor, VideoProcessor
+from helper import Predictor, process_video_async
+from threading import Thread
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -113,25 +114,23 @@ def process_video():
         s3_client.download_file(BUCKET_NAME, video_file_name, local_video_path)
 
         output_path = '/tmp/output'
-        video_processor = VideoProcessor()
-        positions = video_processor.process_video(local_video_path, output_path, job_id, user_id)
-
-        s3_path = f'processed_data/user_id={user_id}/date={datetime.now().strftime("%Y-%m-%d")}/{job_id}.parquet'
-        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
-
-        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_file_name, s3_path=s3_path)
+        
+        # Start video processing in a background thread
+        thread = Thread(target=process_video_async, args=(local_video_path, output_path, job_id, user_id))
+        thread.start()
 
         return jsonify({
-            'status': 'success',
+            'status': 'processing',
             'job_id': job_id,
             'user_id': user_id,
-            's3_path': s3_path
+            'message': 'Video processing started'
         })
 
     except Exception as e:
         logger.error(f"Error in process_video: {str(e)}")
         update_job_status(job_id, user_id, 'FAILED', 'video', video_file_name)
         return jsonify({'error': 'An error occurred while processing the video'}), 500
+
 
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
