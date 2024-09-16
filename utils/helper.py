@@ -10,8 +10,8 @@ from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from shared_utils import logger, s3_client, BUCKET_NAME, update_job_status, Config
-from utils.find_position import find_position
+from .shared_utils import logger, s3_client, BUCKET_NAME, update_job_status, Config
+from .find_position import find_position
 
 class Predictor:
     def __init__(self):

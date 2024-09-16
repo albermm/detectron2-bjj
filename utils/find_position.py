@@ -1,7 +1,7 @@
 import numpy as np
 import joblib
 import os
-from shared_utils import logger, Config
+from .shared_utils import logger, Config
 
 def find_position(all_pred_keypoints):
     try:
