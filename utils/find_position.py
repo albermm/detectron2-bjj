@@ -6,7 +6,7 @@ from .shared_utils import logger, Config
 def find_position(all_pred_keypoints):
     try:
         # Load the trained model
-        model_path = os.path.join(os.path.dirname(__file__), Config.MODEL_PATH)
+        model_path = os.path.join(os.path.dirname(__file__), '..', 'models', Config.MODEL_PATH)
         
         # Load the trained model
         trained_model = joblib.load(model_path)

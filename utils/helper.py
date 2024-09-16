@@ -41,13 +41,13 @@ class Predictor:
             logger.error(f"Error in predict_keypoints: {str(e)}")
             raise
 
+  
     def save_keypoints(self, outputs):
         try:
             instances = outputs
-
             if hasattr(instances, 'pred_keypoints'):
                 pred_keypoints = instances.pred_keypoints
-                all_pred_keypoints = [keypoints.tolist() for keypoints in pred_keypoints]
+                all_pred_keypoints = [keypoints.cpu().numpy().tolist() for keypoints in pred_keypoints]
                 return all_pred_keypoints
             else:
                 logger.warning("The 'pred_keypoints' attribute is not present in the given Instances object.")
@@ -147,7 +147,7 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}")
             raise
-
+        
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
         video_processor = VideoProcessor()
