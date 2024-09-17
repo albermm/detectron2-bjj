@@ -147,7 +147,7 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}")
             raise
-        
+
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
         video_processor = VideoProcessor()

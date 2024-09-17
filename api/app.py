@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flasgger import Swagger
 from utils.shared_utils import (
+    Config, BUCKET_NAME, DYNAMODB_TABLE_NAME, EC2_BASE_URL, APP_PORT,
     s3_client, dynamodb_table, generate_job_id,
-    update_job_status, get_s3_url, validate_file_type, validate_user_id, logger, Config
+    update_job_status, get_s3_url, validate_file_type, validate_user_id, logger
 )
 from utils.helper import Predictor, process_video_async
 from threading import Thread
-from flasgger import Swagger
-
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -131,6 +131,7 @@ def process_image():
       500:
         description: Server error
     """
+
     try:
         data = request.json
         file_name = data['file_name']
@@ -138,20 +139,20 @@ def process_image():
         user_id = data['user_id']
 
         local_file_name = '/tmp/image.jpg'
-        s3_client.download_file(Config.BUCKET_NAME, file_name, local_file_name)
+        s3_client.download_file(BUCKET_NAME, file_name, local_file_name)
 
         predictor = Predictor()
         output_path = '/tmp/output'
         keypoint_frame, keypoints, predicted_position = predictor.onImage(local_file_name, output_path)
 
-        if keypoints is None:
+        if keypoint_frame is None or keypoints is None or predicted_position is None:
             raise ValueError('Failed to process image')
 
         keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
         keypoints_json_key = f"outputs/keypoints_{file_name}.json"
 
-        s3_client.upload_file(f'{output_path}_keypoints.jpg', Config.BUCKET_NAME, keypoint_image_key)
-        s3_client.upload_file(f'{output_path}_keypoints.json', Config.BUCKET_NAME, keypoints_json_key)
+        s3_client.upload_file(f'{output_path}_keypoints.jpg', BUCKET_NAME, keypoint_image_key)
+        s3_client.upload_file(f'{output_path}_keypoints.json', BUCKET_NAME, keypoints_json_key)
 
         keypoint_image_url = get_s3_url(keypoint_image_key)
         keypoints_json_url = get_s3_url(keypoints_json_key)
