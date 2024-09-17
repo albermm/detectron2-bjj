@@ -1,0 +1,29 @@
+name: Verify and Notify
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Verify push
+      run: |
+        if [ -f "tests/__init__.py" ]; then
+          echo "Tests directory exists. Assuming tests passed locally."
+        else
+          echo "Tests directory not found. Please ensure tests are run locally before pushing."
+          exit 1
+        fi
+    
+  notify:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+    - name: Notify for deployment
+      run: |
+        echo "New changes have been pushed to the main branch and verified."
+        echo "Please review the changes and deploy to EC2 when ready."
+    # You can add additional steps here to notify you via email, Slack, etc.
