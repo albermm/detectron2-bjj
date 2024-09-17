@@ -10,9 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: '3.11'
     - name: Install dependencies
@@ -21,7 +21,7 @@ jobs:
         pip install -r requirements.txt
     - name: Run tests
       run: |
-        pytest tests/
+        pytest tests/ -v --capture=no
 
   notify-deploy:
     needs: test
@@ -32,5 +32,3 @@ jobs:
       run: |
         echo "Tests passed successfully. Ready for deployment to EC2."
         echo "Please run 'git pull' on your EC2 instance to deploy the latest changes."
-      # I could add steps here to notify you via email, Slack, etc.
-
