@@ -6,9 +6,7 @@ from .shared_utils import logger, Config
 def find_position(all_pred_keypoints):
     try:
         # Load the trained model
-        model_path = os.path.join(os.path.dirname(__file__), '..', 'models', Config.MODEL_PATH)
-        
-        # Load the trained model
+        model_path = os.path.join(os.path.dirname(__file__), '..', Config.MODEL_PATH)
         trained_model = joblib.load(model_path)
 
         # Extract keypoints for player1 and player2
@@ -39,6 +37,4 @@ def find_position(all_pred_keypoints):
             return None
     except Exception as e:
         logger.error(f"Error in find_position: {str(e)}")
-        raise
-
-# TODO: Implement unit tests for find_position function
+        return None

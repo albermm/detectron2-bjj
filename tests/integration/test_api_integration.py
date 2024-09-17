@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch
-from .mock_AWS_setup import s3_client, dynamodb_resource, app, client
+from tests.integration.mock_AWS_setup import aws_credentials, s3_client, app, client
+
 
 def test_process_image_api_integration(client, s3_client):
     with patch('utils.helper.Predictor.onImage') as mock_onImage:
@@ -22,3 +23,4 @@ def test_process_image_api_integration(client, s3_client):
         
         # Verify that the processed image was uploaded to S3
         assert s3_client.get_object(Bucket='test-bucket', Key='outputs/keypoint_frame_inputs/test_user/test.jpg')
+    pass

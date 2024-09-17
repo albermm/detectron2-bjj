@@ -1,5 +1,6 @@
 import sys
 from unittest.mock import MagicMock
+import os
 
 # Mock detectron2 and its submodules
 sys.modules['detectron2'] = MagicMock()
@@ -15,10 +16,8 @@ sys.modules['botocore'] = MagicMock()
 sys.modules['botocore.config'] = MagicMock()
 
 # Add the project root to Python path
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
 
 # Mock environment variables
-import os
 os.environ['S3_BUCKET_NAME'] = 'test-bucket'

@@ -26,8 +26,17 @@ class Config:
     # EC2 configuration
     API_TIMEOUT = 30  # seconds
 
+    # Get the directory of the current script
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    
+    # Navigate to the project root
+    PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+    
+
+
     # Model configuration
-    MODEL_PATH = '../trained_model.joblib'
+    # Set the MODEL_PATH relative to the project root
+    MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'trained_model.joblib')
     MAX_KEYPOINTS = 18
     KEYPOINT_MEAN = 0.5  # Replace with actual value from model training
     KEYPOINT_STD = 0.2   # Replace with actual value from model training
@@ -91,6 +100,7 @@ __all__ = [
     'Config',
     'BUCKET_NAME',
     'DYNAMODB_TABLE_NAME',
+    'MODEL_PATH',
     'EC2_BASE_URL',
     'APP_PORT',
     's3_client',

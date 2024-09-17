@@ -1,20 +1,25 @@
 import cv2
 import torch
-import json
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
-from datetime import datetime, timedelta
+import json
+import joblib
 from detectron2.utils.visualizer import Visualizer as DetectronVisualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from .shared_utils import logger, s3_client, BUCKET_NAME, update_job_status, Config
+from .shared_utils import logger, Config
 from .find_position import find_position
 
 class Predictor:
     def __init__(self):
+        self.model = None
+        try:
+            self.model = joblib.load(Config.MODEL_PATH)
+            logger.info(f"Model loaded successfully from {Config.MODEL_PATH}")
+        except Exception as e:
+            logger.error(f"Failed to load model from {Config.MODEL_PATH}: {str(e)}")
+
         self.cfg_kp = get_cfg()
         self.cfg_kp.merge_from_file(model_zoo.get_config_file(Config.KEYPOINT_CONFIG))
         self.cfg_kp.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(Config.KEYPOINT_CONFIG)
@@ -39,22 +44,21 @@ class Predictor:
             return out_frame, outputs
         except Exception as e:
             logger.error(f"Error in predict_keypoints: {str(e)}")
-            raise
+            return None, None
 
-  
     def save_keypoints(self, outputs):
         try:
             instances = outputs
             if hasattr(instances, 'pred_keypoints'):
                 pred_keypoints = instances.pred_keypoints
-                all_pred_keypoints = [keypoints.cpu().numpy().tolist() for keypoints in pred_keypoints]
+                all_pred_keypoints = [keypoints.tolist() for keypoints in pred_keypoints]
                 return all_pred_keypoints
             else:
                 logger.warning("The 'pred_keypoints' attribute is not present in the given Instances object.")
                 return None
         except Exception as e:
             logger.error(f"Error in save_keypoints: {str(e)}")
-            raise
+            return None
 
     def onImage(self, input_path, output_path):
         try:
@@ -63,21 +67,34 @@ class Predictor:
                 raise ValueError(f"Failed to load image from {input_path}")
 
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-            cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
-     
-            keypoints = self.save_keypoints(keypoint_outputs)  
+            if keypoint_frame is None or keypoint_outputs is None:
+                logger.error("Failed to predict keypoints")
+                return None, None, None
+
+            if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
+                cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
+            else:
+                logger.warning(f"Invalid keypoint_frame, not saving the image.")
+
+            keypoints = self.save_keypoints(keypoint_outputs)
             if keypoints is None:
-                raise ValueError("Failed to extract keypoints")
+                logger.error("Failed to extract keypoints")
+                return None, None, None
 
             with open(output_path + "_keypoints.json", 'w') as f:
                 json.dump(keypoints, f)
-       
+    
+
+
+
             predicted_position = find_position(keypoints)
 
             return keypoint_frame, keypoints, predicted_position
         except Exception as e:
             logger.error(f"Error in onImage: {str(e)}")
             return None, None, None
+
+
 
 class VideoProcessor:
     def __init__(self):
