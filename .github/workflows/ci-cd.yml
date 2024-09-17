@@ -34,26 +34,3 @@ jobs:
         echo "Please run 'git pull' on your EC2 instance to deploy the latest changes."
       # I could add steps here to notify you via email, Slack, etc.
 
-
-
-    '''
-    deploy:
-      needs: test
-      runs-on: ubuntu-latest
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      steps:
-      - uses: actions/checkout@v2
-      - name: Deploy to EC2
-        env:
-          PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
-          HOST: ${{ secrets.EC2_HOST }}
-          USER: ${{ secrets.EC2_USER }}
-        run: |
-          echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
-          ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} '
-            cd /path/to/your/project &&
-            git pull origin main &&
-            source /path/to/your/venv/bin/activate &&
-            pip install -r requirements.txt &&
-            sudo systemctl restart your-service-name
-          ''''
