@@ -1,5 +1,4 @@
 import boto3
-import requests
 import json
 import os
 import time
@@ -84,5 +83,3 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"An error occurred: {str(e)}")
         }
-
-# TODO: Implement unit tests for lambda_handler function

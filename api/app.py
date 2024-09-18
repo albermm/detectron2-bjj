@@ -11,10 +11,12 @@ from utils.shared_utils import (
 )
 from utils.helper import Predictor, process_video_async
 from threading import Thread
+import boto3
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 Swagger(app)
+s3_client = boto3.client('s3')
 
 @app.route('/get_upload_url', methods=['GET'])
 def get_upload_url():
@@ -148,8 +150,16 @@ def process_image():
         job_id = data['job_id']
         user_id = data['user_id']
 
+        logger.info(f"Received request to process image. File: {file_name}, Job ID: {job_id}, User ID: {user_id}")
+
         local_file_name = '/tmp/image.jpg'
-        s3_client.download_file(BUCKET_NAME, file_name, local_file_name)
+
+        try:
+            s3_client.download_file(BUCKET_NAME, file_name, local_file_name)
+            logger.info(f"File downloaded successfully from S3 to {local_file_name}")
+        except Exception as e:
+            logger.error(f"Error downloading file from S3: {str(e)}")
+            raise
 
         predictor = Predictor()
         output_path = '/tmp/output'
@@ -158,8 +168,8 @@ def process_image():
         if keypoint_frame is None or keypoints is None or predicted_position is None:
             raise ValueError('Failed to process image')
 
-        keypoint_image_key = f"outputs/keypoint_frame_{file_name}"
-        keypoints_json_key = f"outputs/keypoints_{file_name}.json"
+        keypoint_image_key = f"outputs/keypoint_frame_{file_name.split('/')[-1]}"
+        keypoints_json_key = f"outputs/keypoints_{file_name.split('/')[-1]}.json"
 
         s3_client.upload_file(f'{output_path}_keypoints.jpg', BUCKET_NAME, keypoint_image_key)
         s3_client.upload_file(f'{output_path}_keypoints.json', BUCKET_NAME, keypoints_json_key)
@@ -185,12 +195,14 @@ def process_image():
             'job_id': job_id
         })
 
+    except Exception as e:
+      logger.error(f"Error in process_image: {str(e)}")
+      return jsonify({'error': f'An error occurred while processing the image: {str(e)}'}), 500
+
     except ValueError as ve:
         logger.warning(f"Validation error in process_image: {str(ve)}")
         return jsonify({'error': str(ve)}), 400
-    except Exception as e:
-        logger.error(f"Error in process_image: {str(e)}")
-        return jsonify({'error': 'An error occurred while processing the image'}), 500
+
 
 @app.route('/process_video', methods=['POST'])
 def process_video():
