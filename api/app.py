@@ -61,38 +61,31 @@ def get_upload_url():
         validate_user_id(user_id)
 
         file_extension = '.jpg' if file_type == 'image' else '.mp4'
-        file_name = f"inputs/{user_id}/{generate_job_id()}{file_extension}"
         job_id = generate_job_id()
+        file_name = f"inputs/{job_id}{file_extension}"
         content_type = 'image/jpeg' if file_type == 'image' else 'video/mp4'
 
-        # For testing purposes, return a dummy response if s3_client is a MagicMock
-        if isinstance(s3_client, MagicMock):
-            presigned_url = {
-                'url': 'https://test-bucket.s3.amazonaws.com',
-                'fields': {'key': file_name}
-            }
-        else:
-          presigned_url = s3_client.generate_presigned_post(
-              Bucket=Config.BUCKET_NAME,
-              Key=file_name,
-              Fields={
-                  'x-amz-meta-job-id': job_id,
-                  'x-amz-meta-user-id': user_id,
-                  'Content-Type': content_type,
-              },
-              Conditions=[
-                  {'x-amz-meta-job-id': job_id},
-                  {'x-amz-meta-user-id': user_id},
-                  ['content-length-range', 1, Config.MAX_FILE_SIZE],
-                  {'Content-Type': content_type},
-              ],
-              ExpiresIn=Config.PRESIGNED_URL_EXPIRATION
-          )
+        presigned_post = s3_client.generate_presigned_post(
+            Bucket=Config.BUCKET_NAME,
+            Key=file_name,
+            Fields={
+                'x-amz-meta-job-id': job_id,
+                'x-amz-meta-user-id': user_id,
+                'Content-Type': content_type,
+            },
+            Conditions=[
+                {'x-amz-meta-job-id': job_id},
+                {'x-amz-meta-user-id': user_id},
+                ['content-length-range', 1, Config.MAX_FILE_SIZE],
+                {'Content-Type': content_type},
+            ],
+            ExpiresIn=Config.PRESIGNED_URL_EXPIRATION
+        )
 
         update_job_status(job_id, user_id, 'PENDING', file_type, file_name)
 
         return jsonify({
-            'presigned_post': presigned_url,
+            'presigned_post': presigned_post,
             'file_name': file_name,
             'job_id': job_id,
             'user_id': user_id
@@ -104,6 +97,7 @@ def get_upload_url():
     except Exception as e:
         logger.error(f"Error in get_upload_url: {str(e)}")
         return jsonify({'error': 'An error occurred while generating upload URL'}), 500
+
 
 @app.route('/process_image', methods=['POST'])
 def process_image():
