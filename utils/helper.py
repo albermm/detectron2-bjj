@@ -105,88 +105,88 @@ class VideoProcessor:
     def __init__(self):
         self.predictor = Predictor()
 
-def process_video(self, video_path, output_path, job_id, user_id):
-    try:
-        cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    def process_video(self, video_path, output_path, job_id, user_id):
+        try:
+            cap = cv2.VideoCapture(video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        positions = []
-        current_position = None
-        start_time = None
+            positions = []
+            current_position = None
+            start_time = None
 
-        for frame_number in range(frame_count):
-            ret, frame = cap.read()
-            if not ret:
-                break
+            for frame_number in range(frame_count):
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            timestamp = timedelta(seconds=frame_number / fps)
+                timestamp = timedelta(seconds=frame_number / fps)
+                
+                _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+
+                if predicted_position != current_position:
+                    if current_position is not None:
+                        positions.append({
+                            'position': current_position,
+                            'start_time': start_time,
+                            'end_time': timestamp,
+                            'player_id': 1  # Assuming single player for simplicity
+                        })
+                    current_position = predicted_position
+                    start_time = timestamp
+
+                if frame_number % 100 == 0:
+                    progress = (frame_number + 1) / frame_count * 100
+                    update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
+
+            cap.release()
+
+            # Add the last position
+            if current_position is not None:
+                positions.append({
+                    'position': current_position,
+                    'start_time': start_time,
+                    'end_time': timedelta(seconds=frame_count / fps),
+                    'player_id': 1
+                })
+
+            # Convert positions to Parquet
+            data = {
+                'job_id': [job_id] * len(positions),
+                'user_id': [user_id] * len(positions),
+                'player_id': [pos['player_id'] for pos in positions],
+                'position': [pos['position'] for pos in positions],
+                'start_time': [pos['start_time'].total_seconds() for pos in positions],
+                'end_time': [pos['end_time'].total_seconds() for pos in positions],
+                'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
+                'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
+            }
+
+            table = pa.Table.from_pydict(data)
+            pq.write_table(table, f'{output_path}/{job_id}.parquet')
+
+            return positions
+        except Exception as e:
+            logger.error(f"Error in process_video: {str(e)}")
+            raise
+
+    def process_video_async(video_path, output_path, job_id, user_id):
+        try:
+            video_processor = VideoProcessor()
+            positions = video_processor.process_video(video_path, output_path, job_id, user_id)
             
-            _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+            # Upload to S3
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
+            s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
 
-            if predicted_position != current_position:
-                if current_position is not None:
-                    positions.append({
-                        'position': current_position,
-                        'start_time': start_time,
-                        'end_time': timestamp,
-                        'player_id': 1  # Assuming single player for simplicity
-                    })
-                current_position = predicted_position
-                start_time = timestamp
+            # Update DynamoDB with job completion status
+            update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
 
-            if frame_number % 100 == 0:
-                progress = (frame_number + 1) / frame_count * 100
-                update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
+            return positions
+        except Exception as e:
+            logger.error(f"Error in process_video_async: {str(e)}")
+            update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
+            raise
 
-        cap.release()
-
-        # Add the last position
-        if current_position is not None:
-            positions.append({
-                'position': current_position,
-                'start_time': start_time,
-                'end_time': timedelta(seconds=frame_count / fps),
-                'player_id': 1
-            })
-
-        # Convert positions to Parquet
-        data = {
-            'job_id': [job_id] * len(positions),
-            'user_id': [user_id] * len(positions),
-            'player_id': [pos['player_id'] for pos in positions],
-            'position': [pos['position'] for pos in positions],
-            'start_time': [pos['start_time'].total_seconds() for pos in positions],
-            'end_time': [pos['end_time'].total_seconds() for pos in positions],
-            'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
-            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
-        }
-
-        table = pa.Table.from_pydict(data)
-        pq.write_table(table, f'{output_path}/{job_id}.parquet')
-
-        return positions
-    except Exception as e:
-        logger.error(f"Error in process_video: {str(e)}")
-        raise
-
-def process_video_async(video_path, output_path, job_id, user_id):
-    try:
-        video_processor = VideoProcessor()
-        positions = video_processor.process_video(video_path, output_path, job_id, user_id)
-        
-        # Upload to S3
-        current_date = datetime.now().strftime('%Y-%m-%d')
-        s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
-        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
-
-        # Update DynamoDB with job completion status
-        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
-
-        return positions
-    except Exception as e:
-        logger.error(f"Error in process_video_async: {str(e)}")
-        update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
-        raise
-
-# TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
+    # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
