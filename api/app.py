@@ -4,6 +4,11 @@ from flask_cors import CORS
 from flasgger import Swagger
 from datetime import datetime
 
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.shared_utils import (
     Config, BUCKET_NAME, DYNAMODB_TABLE_NAME, EC2_BASE_URL, APP_PORT,
     s3_client, dynamodb_table, generate_job_id,
@@ -232,6 +237,11 @@ def process_video():
       500:
         description: Server error
     """
+
+    video_file_name = None
+    job_id = None
+    user_id = None
+
     try:
         data = request.json
         video_file_name = data['video_file_name']
@@ -258,7 +268,8 @@ def process_video():
 
     except Exception as e:
         logger.error(f"Error in process_video: {str(e)}")
-        update_job_status(job_id, user_id, 'FAILED', 'video', video_file_name)
+        if job_id and user_id and video_file_name:
+            update_job_status(job_id, user_id, 'FAILED', 'video', video_file_name)
         return jsonify({'error': 'An error occurred while processing the video'}), 500
 
 @app.route('/get_job_status/<job_id>', methods=['GET'])
