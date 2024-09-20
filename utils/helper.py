@@ -1,3 +1,4 @@
+from datetime import timedelta
 import cv2
 import torch
 import numpy as np
@@ -8,8 +9,10 @@ from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from .shared_utils import logger, Config
+from .shared_utils import logger, Config, update_job_status, s3_client, BUCKET_NAME
 from .find_position import find_position
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 class Predictor:
     def __init__(self):
@@ -67,24 +70,26 @@ class Predictor:
                 raise ValueError(f"Failed to load image from {input_path}")
 
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-            if keypoint_frame is None or keypoint_outputs is None:
-                logger.error("Failed to predict keypoints")
-                return None, None, None
-
-            if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
-                cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
-            else:
-                logger.warning(f"Invalid keypoint_frame, not saving the image.")
-
+            
             keypoints = self.save_keypoints(keypoint_outputs)
-            if keypoints is None:
-                logger.error("Failed to extract keypoints")
-                return None, None, None
+            
+            if keypoints and len(keypoints) >= 2:
+                predicted_position = find_position(keypoints)
+            else:
+                logger.warning("Not enough players detected for position prediction.")
+                predicted_position = None
 
-            with open(output_path + "_keypoints.json", 'w') as f:
-                json.dump(keypoints, f)
-    
+            if isinstance(keypoint_frame, np.ndarray):
+                cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
+                with open(output_path + "_keypoints.json", 'w') as f:
+                    json.dump(keypoints, f)
+            else:
+                logger.warning("Invalid keypoint_frame, not saving the image.")
 
+            return keypoint_frame, keypoints, predicted_position
+        except Exception as e:
+            logger.error(f"Error in onImage: {str(e)}")
+            return None, None, None
 
 
             predicted_position = find_position(keypoints)
@@ -100,70 +105,70 @@ class VideoProcessor:
     def __init__(self):
         self.predictor = Predictor()
 
-    def process_video(self, video_path, output_path, job_id, user_id):
-        try:
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+def process_video(self, video_path, output_path, job_id, user_id):
+    try:
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            positions = []
-            current_position = None
-            start_time = None
+        positions = []
+        current_position = None
+        start_time = None
 
-            for frame_number in range(frame_count):
-                ret, frame = cap.read()
-                if not ret:
-                    break
+        for frame_number in range(frame_count):
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-                timestamp = timedelta(seconds=frame_number / fps)
-                
-                _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+            timestamp = timedelta(seconds=frame_number / fps)
+            
+            _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
-                if predicted_position != current_position:
-                    if current_position is not None:
-                        positions.append({
-                            'position': current_position,
-                            'start_time': start_time,
-                            'end_time': timestamp,
-                            'player_id': 1  # Assuming single player for simplicity
-                        })
-                    current_position = predicted_position
-                    start_time = timestamp
+            if predicted_position != current_position:
+                if current_position is not None:
+                    positions.append({
+                        'position': current_position,
+                        'start_time': start_time,
+                        'end_time': timestamp,
+                        'player_id': 1  # Assuming single player for simplicity
+                    })
+                current_position = predicted_position
+                start_time = timestamp
 
-                if frame_number % 100 == 0:
-                    progress = (frame_number + 1) / frame_count * 100
-                    update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
+            if frame_number % 100 == 0:
+                progress = (frame_number + 1) / frame_count * 100
+                update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
 
-            cap.release()
+        cap.release()
 
-            # Add the last position
-            if current_position is not None:
-                positions.append({
-                    'position': current_position,
-                    'start_time': start_time,
-                    'end_time': timedelta(seconds=frame_count / fps),
-                    'player_id': 1
-                })
+        # Add the last position
+        if current_position is not None:
+            positions.append({
+                'position': current_position,
+                'start_time': start_time,
+                'end_time': timedelta(seconds=frame_count / fps),
+                'player_id': 1
+            })
 
-            # Convert positions to Parquet
-            data = {
-                'job_id': [job_id] * len(positions),
-                'user_id': [user_id] * len(positions),
-                'player_id': [pos['player_id'] for pos in positions],
-                'position': [pos['position'] for pos in positions],
-                'start_time': [pos['start_time'].total_seconds() for pos in positions],
-                'end_time': [pos['end_time'].total_seconds() for pos in positions],
-                'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
-                'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
-            }
+        # Convert positions to Parquet
+        data = {
+            'job_id': [job_id] * len(positions),
+            'user_id': [user_id] * len(positions),
+            'player_id': [pos['player_id'] for pos in positions],
+            'position': [pos['position'] for pos in positions],
+            'start_time': [pos['start_time'].total_seconds() for pos in positions],
+            'end_time': [pos['end_time'].total_seconds() for pos in positions],
+            'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
+            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
+        }
 
-            table = pa.Table.from_pydict(data)
-            pq.write_table(table, f'{output_path}/{job_id}.parquet')
+        table = pa.Table.from_pydict(data)
+        pq.write_table(table, f'{output_path}/{job_id}.parquet')
 
-            return positions
-        except Exception as e:
-            logger.error(f"Error in process_video: {str(e)}")
-            raise
+        return positions
+    except Exception as e:
+        logger.error(f"Error in process_video: {str(e)}")
+        raise
 
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
