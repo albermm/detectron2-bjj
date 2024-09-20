@@ -238,20 +238,23 @@ def process_video():
         description: Server error
     """
 
-    video_file_name = None
-    job_id = None
-    user_id = None
-
     try:
         data = request.json
-        video_file_name = data['video_file_name']
-        job_id = data['job_id']
-        user_id = data['user_id']
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
 
-        update_job_status(job_id, user_id, 'PROCESSING', 'video', video_file_name)
+        file_name = data.get('file_name')
+        job_id = data.get('job_id')
+        user_id = data.get('user_id')
+
+        if not all([file_name, job_id, user_id]):
+            missing = [k for k, v in {'file_name': file_name, 'job_id': job_id, 'user_id': user_id}.items() if not v]
+            return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
+
+        update_job_status(job_id, user_id, 'PROCESSING', 'video', file_name)
 
         local_video_path = '/tmp/video.mp4'
-        s3_client.download_file(Config.BUCKET_NAME, video_file_name, local_video_path)
+        s3_client.download_file(Config.BUCKET_NAME, file_name, local_video_path)
 
         output_path = '/tmp/output'
         
