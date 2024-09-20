@@ -17,6 +17,7 @@ ML Keys.pem
 #Ignore MyApp folder
 MyApp/
 lambda_package/
+lambda_layers/
 
 #ignore annotations json
 annotations.json
