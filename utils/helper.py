@@ -170,23 +170,23 @@ class VideoProcessor:
             logger.error(f"Error in process_video: {str(e)}")
             raise
 
-    def process_video_async(video_path, output_path, job_id, user_id):
-        try:
-            video_processor = VideoProcessor()
-            positions = video_processor.process_video(video_path, output_path, job_id, user_id)
-            
-            # Upload to S3
-            current_date = datetime.now().strftime('%Y-%m-%d')
-            s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
-            s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
+def process_video_async(video_path, output_path, job_id, user_id):
+    try:
+        video_processor = VideoProcessor()
+        positions = video_processor.process_video(video_path, output_path, job_id, user_id)
+        
+        # Upload to S3
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
+        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
 
-            # Update DynamoDB with job completion status
-            update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
+        # Update DynamoDB with job completion status
+        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
 
-            return positions
-        except Exception as e:
-            logger.error(f"Error in process_video_async: {str(e)}")
-            update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
-            raise
+        return positions
+    except Exception as e:
+        logger.error(f"Error in process_video_async: {str(e)}")
+        update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
+        raise
 
-    # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
+# TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
