@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import cv2
 import torch
 import numpy as np
@@ -65,26 +66,32 @@ class Predictor:
 
     def onImage(self, input_path, output_path):
         try:
-            image = cv2.imread(input_path)
+            if isinstance(input_path, np.ndarray):
+                image = input_path
+            else:
+                image = cv2.imread(str(input_path))
             if image is None:
                 raise ValueError(f"Failed to load image from {input_path}")
 
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-            
-            keypoints = self.save_keypoints(keypoint_outputs)
-            
-            if keypoints and len(keypoints) >= 2:
-                predicted_position = find_position(keypoints)
-            else:
-                logger.warning("Not enough players detected for position prediction.")
-                predicted_position = None
+            if keypoint_frame is None or keypoint_outputs is None:
+                logger.error("Failed to predict keypoints")
+                return None, None, None
 
-            if isinstance(keypoint_frame, np.ndarray):
-                cv2.imwrite(output_path + "_keypoints.jpg", keypoint_frame)
-                with open(output_path + "_keypoints.json", 'w') as f:
-                    json.dump(keypoints, f)
+            if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
+                cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
             else:
-                logger.warning("Invalid keypoint_frame, not saving the image.")
+                logger.warning(f"Invalid keypoint_frame, not saving the image.")
+
+            keypoints = self.save_keypoints(keypoint_outputs)
+            if keypoints is None:
+                logger.error("Failed to extract keypoints")
+                return None, None, None
+
+            with open(f"{output_path}_keypoints.json", 'w') as f:
+                json.dump(keypoints, f)
+
+            predicted_position = find_position(keypoints)
 
             return keypoint_frame, keypoints, predicted_position
         except Exception as e:
@@ -108,6 +115,9 @@ class VideoProcessor:
     def process_video(self, video_path, output_path, job_id, user_id):
         try:
             cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"Failed to open video file: {video_path}")
+
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
@@ -163,22 +173,32 @@ class VideoProcessor:
             }
 
             table = pa.Table.from_pydict(data)
-            pq.write_table(table, f'{output_path}/{job_id}.parquet')
+            parquet_file = f'{output_path}/{job_id}.parquet'
+            pq.write_table(table, parquet_file)
+            logger.info(f"Parquet file written: {parquet_file}")
 
             return positions
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}")
             raise
-
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
+        # Create output directory if it doesn't exist
+        os.makedirs(output_path, exist_ok=True)
+        
         video_processor = VideoProcessor()
         positions = video_processor.process_video(video_path, output_path, job_id, user_id)
         
         # Upload to S3
         current_date = datetime.now().strftime('%Y-%m-%d')
         s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
-        s3_client.upload_file(f'{output_path}/{job_id}.parquet', BUCKET_NAME, s3_path)
+        
+        parquet_file = f'{output_path}/{job_id}.parquet'
+        if os.path.exists(parquet_file):
+            s3_client.upload_file(parquet_file, BUCKET_NAME, s3_path)
+            logger.info(f"Uploaded {parquet_file} to S3: {s3_path}")
+        else:
+            logger.error(f"Parquet file not found: {parquet_file}")
 
         # Update DynamoDB with job completion status
         update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
@@ -188,5 +208,4 @@ def process_video_async(video_path, output_path, job_id, user_id):
         logger.error(f"Error in process_video_async: {str(e)}")
         update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
         raise
-
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
