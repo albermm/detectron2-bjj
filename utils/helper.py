@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 import os
 import cv2
 import torch
@@ -240,6 +240,5 @@ def process_video_async(video_path, output_path, job_id, user_id):
             if filename.startswith(f"frame_{job_id}"):
                 os.remove(os.path.join(output_path, filename))
         logger.info(f"Cleaned up temporary files for job_id: {job_id}")
-
 
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
