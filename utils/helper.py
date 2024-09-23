@@ -112,6 +112,17 @@ class VideoProcessor:
     def __init__(self):
         self.predictor = Predictor()
 
+    import cv2
+from datetime import timedelta
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+from utils.shared_utils import update_job_status, logger
+
+class VideoProcessor:
+    def __init__(self):
+        self.predictor = Predictor()
+
     def process_video(self, video_path, output_path, job_id, user_id):
         try:
             cap = cv2.VideoCapture(video_path)
@@ -121,11 +132,15 @@ class VideoProcessor:
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+            # Calculate frame skip interval (process a frame every 2.5 seconds)
+            frame_skip = int(fps * 2.5)
+
             positions = []
             current_position = None
             start_time = None
 
-            for frame_number in range(frame_count):
+            for frame_number in range(0, frame_count, frame_skip):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -145,7 +160,8 @@ class VideoProcessor:
                     current_position = predicted_position
                     start_time = timestamp
 
-                if frame_number % 100 == 0:
+                # Update progress every 10 processed frames
+                if (frame_number // frame_skip) % 10 == 0:
                     progress = (frame_number + 1) / frame_count * 100
                     update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
 
@@ -181,13 +197,17 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}")
             raise
+
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
         # Create output directory if it doesn't exist
         os.makedirs(output_path, exist_ok=True)
+        logger.info(f"Created output directory: {output_path}")
         
         video_processor = VideoProcessor()
+        logger.info(f"Starting video processing for job_id: {job_id}")
         positions = video_processor.process_video(video_path, output_path, job_id, user_id)
+        logger.info(f"Video processing completed for job_id: {job_id}")
         
         # Upload to S3
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -197,15 +217,29 @@ def process_video_async(video_path, output_path, job_id, user_id):
         if os.path.exists(parquet_file):
             s3_client.upload_file(parquet_file, BUCKET_NAME, s3_path)
             logger.info(f"Uploaded {parquet_file} to S3: {s3_path}")
+            
+            # Clean up local parquet file after successful upload
+            os.remove(parquet_file)
+            logger.info(f"Removed local parquet file: {parquet_file}")
         else:
             logger.error(f"Parquet file not found: {parquet_file}")
+            raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
 
         # Update DynamoDB with job completion status
         update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
+        logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
         return positions
     except Exception as e:
-        logger.error(f"Error in process_video_async: {str(e)}")
+        logger.error(f"Error in process_video_async: {str(e)}", exc_info=True)
         update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
         raise
+    finally:
+        # Clean up any temporary files in the output directory
+        for filename in os.listdir(output_path):
+            if filename.startswith(f"frame_{job_id}"):
+                os.remove(os.path.join(output_path, filename))
+        logger.info(f"Cleaned up temporary files for job_id: {job_id}")
+
+
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
