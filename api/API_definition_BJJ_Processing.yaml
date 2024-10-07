@@ -13,7 +13,9 @@ paths:
           in: query
           required: true
           type: string
-          enum: [image, video]
+          enum:
+            - image
+            - video
         - name: user_id
           in: query
           required: true
@@ -40,7 +42,7 @@ paths:
         uri: http://52.72.247.7:5000/get_upload_url
         responses:
           default:
-            statusCode: "200"
+            statusCode: '200'
         passthroughBehavior: when_no_match
         httpMethod: GET
         type: http_proxy
@@ -85,7 +87,7 @@ paths:
         uri: http://52.72.247.7:5000/process_image
         responses:
           default:
-            statusCode: "200"
+            statusCode: '200'
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: http_proxy
@@ -126,7 +128,7 @@ paths:
         uri: http://52.72.247.7:5000/process_video
         responses:
           default:
-            statusCode: "200"
+            statusCode: '200'
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: http_proxy
@@ -165,23 +167,22 @@ paths:
                 type: string
               s3_path:
                 type: string
-        '404':
-          description: Job not found
         '400':
           description: Bad request
+        '404':
+          description: Job not found
         '500':
           description: Server error
       x-amazon-apigateway-integration:
         uri: http://52.72.247.7:5000/get_job_status/{job_id}
         responses:
           default:
-            statusCode: "200"
+            statusCode: '200'
         requestParameters:
           integration.request.path.job_id: method.request.path.job_id
         passthroughBehavior: when_no_match
         httpMethod: GET
         type: http_proxy
-
 
   /position-analytics/{job_id}:
     get:
@@ -226,17 +227,17 @@ paths:
                           type: integer
                         total_duration:
                           type: number
-        '404':
-          description: Job not found
         '400':
           description: Bad request
+        '404':
+          description: Job not found
         '500':
           description: Server error
       x-amazon-apigateway-integration:
         uri: http://52.72.247.7:5000/position-analytics/{job_id}
         responses:
           default:
-            statusCode: "200"
+            statusCode: '200'
         requestParameters:
           integration.request.path.job_id: method.request.path.job_id
         passthroughBehavior: when_no_match
@@ -253,6 +254,86 @@ securityDefinitions:
       type: cognito_user_pools
       providerARNs:
         - arn:aws:cognito-idp:us-east-1:211125430735:userpool/us-east-1_QJJ74aa1b
+
+security:
+  - CognitoAuth: []
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: Api
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /:
+            get:
+              responses: {}
+      EndpointConfiguration: REGIONAL
+      TracingEnabled: true
+
+
+  /update_position:
+    post:
+      summary: Update a position in the parquet file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobId:
+                  type: string
+                userId:
+                  type: string
+                positionId:
+                  type: string
+                newName:
+                  type: string
+              required:
+                - jobId
+                - userId
+                - positionId
+                - newName
+      responses:
+        '200':
+          description: Successfully updated position
+          content:
+            application/json:    
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Bad request
+        '500':
+          description: Server error
+      x-amazon-apigateway-integration:
+        uri: http://52.72.247.7:5000/update_position
+        responses:
+          default:
+            statusCode: "200"
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: http_proxy
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: apiKey
+      name: Authorization
+      in: header
+      x-amazon-apigateway-authtype: cognito_user_pools
+      x-amazon-apigateway-authorizer:
+        type: cognito_user_pools
+        providerARNs:
+          - arn:aws:cognito-idp:us-east-1:211125430735:userpool/us-east-1_QJJ74aa1b
 
 security:
   - CognitoAuth: []
