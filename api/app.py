@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from flask_cors import CORS
 from flasgger import Swagger
 from datetime import datetime
+from utils.position_updater import update_position_in_parquet
 
 import sys
 import os
@@ -354,6 +355,56 @@ def get_job_status(job_id):
     except Exception as e:
         logger.error(f"Error in get_job_status: {str(e)}")
         return jsonify({'error': 'An error occurred while retrieving the job status'}), 500
+
+
+@app.route('/update_position', methods=['POST'])
+def update_position():
+    """
+    Update a position in the parquet file
+    ---
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            jobId:
+              type: string
+            userId:
+              type: string
+            positionId:
+              type: string
+            newName:
+              type: string
+    responses:
+      200:
+        description: Successfully updated position
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    try:
+        data = request.json
+        job_id = data['jobId']
+        user_id = data['userId']
+        position_id = data['positionId']
+        new_name = data['newName']
+
+        success = update_position_in_parquet(user_id, job_id, position_id, new_name)
+
+        if success:
+            return jsonify({'message': 'Position updated successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to update position'}), 500
+
+    except KeyError as e:
+        return jsonify({'error': f'Missing required field: {str(e)}'}), 400
+    except Exception as e:
+        logger.error(f"Error in update_position: {str(e)}")
+        return jsonify({'error': 'An error occurred while updating the position'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=Config.APP_PORT)

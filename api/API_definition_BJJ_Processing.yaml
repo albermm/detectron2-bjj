@@ -1,4 +1,4 @@
-openapi: 3.0.0
+swagger: '2.0'
 info:
   title: BJJ Image Processing API
   version: 1.0.0
@@ -12,30 +12,26 @@ paths:
         - name: file_type
           in: query
           required: true
-          schema:
-            type: string
-            enum: [image, video]
+          type: string
+          enum: [image, video]
         - name: user_id
           in: query
           required: true
-          schema:
-            type: string
+          type: string
       responses:
         '200':
           description: Successful response
-          content:
-            application/json:    
-              schema:
+          schema:
+            type: object
+            properties:
+              presigned_post:
                 type: object
-                properties:
-                  presigned_post:
-                    type: object
-                  file_name:
-                    type: string
-                  job_id:
-                    type: string
-                  user_id:
-                    type: string
+              file_name:
+                type: string
+              job_id:
+                type: string
+              user_id:
+                type: string
         '400':
           description: Bad request
         '500':
@@ -52,37 +48,35 @@ paths:
   /process_image:
     post:
       summary: Process an uploaded image
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                file_name:
-                  type: string
-                job_id:
-                  type: string
-                user_id:
-                  type: string
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              file_name:
+                type: string
+              job_id:
+                type: string
+              user_id:
+                type: string
       responses:
         '200':
           description: Successful response
-          content:
-            application/json:    
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  keypoint_image_url:
-                    type: string
-                  keypoints_json_url:
-                    type: string
-                  predicted_position:
-                    type: string
-                  job_id:
-                    type: string
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+              keypoint_image_url:
+                type: string
+              keypoints_json_url:
+                type: string
+              predicted_position:
+                type: string
+              job_id:
+                type: string
         '400':
           description: Bad request
         '500':
@@ -99,35 +93,33 @@ paths:
   /process_video:
     post:
       summary: Process an uploaded video
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                video_file_name:
-                  type: string
-                job_id:
-                  type: string
-                user_id:
-                  type: string
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+              video_file_name:
+                type: string
+              job_id:
+                type: string
+              user_id:
+                type: string
       responses:
         '200':
           description: Successful response
-          content:
-            application/json:    
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  job_id:
-                    type: string
-                  user_id:
-                    type: string
-                  message:
-                    type: string
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+              job_id:
+                type: string
+              user_id:
+                type: string
+              message:
+                type: string
         '500':
           description: Server error
       x-amazon-apigateway-integration:
@@ -146,37 +138,33 @@ paths:
         - name: job_id
           in: path
           required: true
-          schema:
-            type: string
+          type: string
         - name: user_id
           in: query
           required: true
-          schema:
-            type: string
+          type: string
       responses:
         '200':
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  PK:
-                    type: string
-                  SK:
-                    type: string
-                  status:
-                    type: string
-                  file_type:
-                    type: string
-                  file_name:
-                    type: string
-                  updatedAt:
-                    type: string
-                  position:
-                    type: string
-                  s3_path:
-                    type: string
+          schema:
+            type: object
+            properties:
+              PK:
+                type: string
+              SK:
+                type: string
+              status:
+                type: string
+              file_type:
+                type: string
+              file_name:
+                type: string
+              updatedAt:
+                type: string
+              position:
+                type: string
+              s3_path:
+                type: string
         '404':
           description: Job not found
         '400':
@@ -194,17 +182,77 @@ paths:
         httpMethod: GET
         type: http_proxy
 
-components:
-  securitySchemes:
-    CognitoAuth:
-      type: apiKey
-      name: Authorization
-      in: header
-      x-amazon-apigateway-authtype: cognito_user_pools
-      x-amazon-apigateway-authorizer:
-        type: cognito_user_pools
-        providerARNs:
-          - arn:aws:cognito-idp:us-east-1:211125430735:userpool/us-east-1_QJJ74aa1b
+
+  /position-analytics/{job_id}:
+    get:
+      summary: Get position analytics for a specific job
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          type: string
+        - name: user_id
+          in: query
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Successful response
+          schema:
+            type: object
+            properties:
+              position_data:
+                type: object
+                properties:
+                  recent:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        position:
+                          type: string
+                        count:
+                          type: integer
+                        total_duration:
+                          type: number
+                  total:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        position:
+                          type: string
+                        count:
+                          type: integer
+                        total_duration:
+                          type: number
+        '404':
+          description: Job not found
+        '400':
+          description: Bad request
+        '500':
+          description: Server error
+      x-amazon-apigateway-integration:
+        uri: http://52.72.247.7:5000/position-analytics/{job_id}
+        responses:
+          default:
+            statusCode: "200"
+        requestParameters:
+          integration.request.path.job_id: method.request.path.job_id
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        type: http_proxy
+
+securityDefinitions:
+  CognitoAuth:
+    type: apiKey
+    name: Authorization
+    in: header
+    x-amazon-apigateway-authtype: cognito_user_pools
+    x-amazon-apigateway-authorizer:
+      type: cognito_user_pools
+      providerARNs:
+        - arn:aws:cognito-idp:us-east-1:211125430735:userpool/us-east-1_QJJ74aa1b
 
 security:
   - CognitoAuth: []
