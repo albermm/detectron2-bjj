@@ -3,12 +3,20 @@ from unittest.mock import MagicMock
 from flask_cors import CORS
 from flasgger import Swagger
 from datetime import datetime
-from utils.position_updater import update_position_in_parquet
-
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Get the absolute path of the current file (app.py)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Get the parent directory (project root)
+project_root = os.path.dirname(current_dir)
+
+# Add the project root to the Python path
+sys.path.insert(0, project_root)
+
+from utils.position_updater import update_position_in_parquet
+
 
 from utils.shared_utils import (
     Config, BUCKET_NAME, DYNAMODB_TABLE_NAME, EC2_BASE_URL, APP_PORT,
