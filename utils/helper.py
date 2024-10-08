@@ -10,7 +10,7 @@ from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from .shared_utils import logger, Config, update_job_status, s3_client, BUCKET_NAME
+from .shared_utils import logger, Config, update_job_status, s3_client, BUCKET_NAME, get_job_details
 from .find_position import find_position
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -107,23 +107,11 @@ class Predictor:
             return None, None, None
 
 
-
 class VideoProcessor:
     def __init__(self):
         self.predictor = Predictor()
 
-    import cv2
-from datetime import timedelta
-import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
-from utils.shared_utils import update_job_status, logger
-
-class VideoProcessor:
-    def __init__(self):
-        self.predictor = Predictor()
-
-    def process_video(self, video_path, output_path, job_id, user_id):
+    def process_video(self, video_path, output_path, job_id, user_id, progress_callback):
         try:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
@@ -131,9 +119,7 @@ class VideoProcessor:
 
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            # Calculate frame skip interval (process a frame every 2.5 seconds)
-            frame_skip = int(fps * 2.5)
+            frame_skip = int(fps * 2.5)  # Process a frame every 2.5 seconds
 
             positions = []
             current_position = None
@@ -155,19 +141,15 @@ class VideoProcessor:
                             'position': current_position,
                             'start_time': start_time,
                             'end_time': timestamp,
-                            'player_id': 1  # Assuming single player for simplicity
+                            'player_id': 1
                         })
                     current_position = predicted_position
                     start_time = timestamp
 
-                # Update progress every 10 processed frames
-                if (frame_number // frame_skip) % 10 == 0:
-                    progress = (frame_number + 1) / frame_count * 100
-                    update_job_status(job_id, user_id, f"PROCESSING - {progress:.2f}%", 'video', video_path)
+                progress_callback(frame_number)
 
             cap.release()
 
-            # Add the last position
             if current_position is not None:
                 positions.append({
                     'position': current_position,
@@ -176,7 +158,6 @@ class VideoProcessor:
                     'player_id': 1
                 })
 
-            # Convert positions to Parquet
             data = {
                 'job_id': [job_id] * len(positions),
                 'user_id': [user_id] * len(positions),
@@ -198,35 +179,51 @@ class VideoProcessor:
             logger.error(f"Error in process_video: {str(e)}")
             raise
 
+        
 def process_video_async(video_path, output_path, job_id, user_id):
     try:
-        # Create output directory if it doesn't exist
+        start_time = int(time.time())
+        total_frames = get_total_frames(video_path)
+
+        update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path, 
+                          processing_start_time=start_time,
+                          total_frames=total_frames,
+                          processed_frames=0)
+
         os.makedirs(output_path, exist_ok=True)
         logger.info(f"Created output directory: {output_path}")
-        
+
         video_processor = VideoProcessor()
         logger.info(f"Starting video processing for job_id: {job_id}")
-        positions = video_processor.process_video(video_path, output_path, job_id, user_id)
+
+        def progress_callback(frame_number):
+            progress = (frame_number / total_frames) * 100
+            update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path,
+                              progress=progress,
+                              processed_frames=frame_number)
+
+        positions = video_processor.process_video(video_path, output_path, job_id, user_id, progress_callback)
         logger.info(f"Video processing completed for job_id: {job_id}")
-        
-        # Upload to S3
-        current_date = datetime.now().strftime('%Y-%m-%d')
-        s3_path = f'processed_data/user_id={user_id}/date={current_date}/{job_id}.parquet'
-        
+
+        job_details = get_job_details(job_id, user_id)
+        submission_date = job_details.get('submission_date', datetime.utcnow().strftime('%Y-%m-%d'))
+
+        s3_path = f'processed_data/user_id={user_id}/date={submission_date}/{job_id}.parquet'
         parquet_file = f'{output_path}/{job_id}.parquet'
+
         if os.path.exists(parquet_file):
             s3_client.upload_file(parquet_file, BUCKET_NAME, s3_path)
             logger.info(f"Uploaded {parquet_file} to S3: {s3_path}")
             
-            # Clean up local parquet file after successful upload
             os.remove(parquet_file)
             logger.info(f"Removed local parquet file: {parquet_file}")
         else:
             logger.error(f"Parquet file not found: {parquet_file}")
             raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
 
-        # Update DynamoDB with job completion status
-        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, s3_path=s3_path)
+        end_time = int(time.time())
+        update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, 
+                          s3_path=s3_path, processing_end_time=end_time)
         logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
         return positions
@@ -235,10 +232,15 @@ def process_video_async(video_path, output_path, job_id, user_id):
         update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
         raise
     finally:
-        # Clean up any temporary files in the output directory
         for filename in os.listdir(output_path):
             if filename.startswith(f"frame_{job_id}"):
                 os.remove(os.path.join(output_path, filename))
         logger.info(f"Cleaned up temporary files for job_id: {job_id}")
 
+
+def get_total_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return total_frames
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
