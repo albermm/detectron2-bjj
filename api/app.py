@@ -5,6 +5,10 @@ from flasgger import Swagger
 from datetime import datetime
 import sys
 import os
+import pandas as pd
+import io
+import boto3
+from botocore.exceptions import ClientError
 
 # Get the absolute path of the current file (app.py)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -16,8 +20,6 @@ project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
 from utils.position_updater import update_position_in_parquet
-
-
 from utils.shared_utils import (
     Config, BUCKET_NAME, DYNAMODB_TABLE_NAME, EC2_BASE_URL, APP_PORT,
     s3_client, dynamodb_table, generate_job_id,
@@ -25,7 +27,7 @@ from utils.shared_utils import (
 )
 from utils.helper import Predictor, process_video_async
 from threading import Thread
-import boto3
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -412,6 +414,161 @@ def update_position():
     except Exception as e:
         logger.error(f"Error in update_position: {str(e)}")
         return jsonify({'error': 'An error occurred while updating the position'}), 500
+
+        
+@app.route('/get_processed_data', methods=['GET'])
+def get_processed_data():
+    """
+    Get processed data for a specific job
+    ---
+    parameters:
+      - name: user_id
+        in: query
+        type: string
+        required: true
+        description: ID of the user
+      - name: job_id
+        in: query
+        type: string
+        required: true
+        description: ID of the job
+    responses:
+      200:
+        description: Successful response
+        schema:
+          properties:
+            video_url:
+              type: string
+            positions:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  startTime:
+                    type: number
+                  endTime:
+                    type: number
+                  duration:
+                    type: number
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    user_id = request.args.get('user_id')
+    job_id = request.args.get('job_id')
+
+    if not user_id or not job_id:
+        return jsonify({'error': 'Missing user_id or job_id'}), 400
+
+    try:
+        # Get job details from DynamoDB
+        job_details = get_job_details(user_id, job_id)
+        if not job_details:
+            return jsonify({'error': 'Job not found'}), 404
+
+        s3_path = job_details.get('s3_path')
+        if not s3_path:
+            return jsonify({'error': 'Processed data not found'}), 404
+
+        # Read parquet file from S3
+        parquet_data = read_parquet_from_s3(s3_path)
+        
+        # Process parquet data into the format expected by the frontend
+        positions = process_parquet_data(parquet_data)
+        
+        # Get video URL
+        video_url = get_video_url(user_id, job_id)
+        
+        return jsonify({
+            'video_url': video_url,
+            'positions': positions
+        })
+    except Exception as e:
+        logger.error(f"Error getting processed data: {str(e)}")
+        return jsonify({'error': 'Failed to get processed data'}), 500
+
+def get_job_details(user_id, job_id):
+    try:
+        response = dynamodb_table.get_item(
+            Key={
+                'PK': f"USER#{user_id}",
+                'SK': f"JOB#{job_id}"
+            }
+        )
+        return response.get('Item')
+    except Exception as e:
+        logger.error(f"Error retrieving job details: {str(e)}")
+        return None
+
+def read_parquet_from_s3(s3_path):
+    try:
+        # Extract bucket and key from s3_path
+        path_parts = s3_path.replace("s3://", "").split("/")
+        bucket = path_parts[0]
+        key = "/".join(path_parts[1:])
+
+        # Read the parquet file from S3
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        parquet_file = io.BytesIO(response['Body'].read())
+        
+        # Read the parquet file into a pandas DataFrame
+        df = pd.read_parquet(parquet_file)
+        return df
+    except ClientError as e:
+        logger.error(f"Error reading parquet file from S3: {str(e)}")
+        raise
+
+def process_parquet_data(parquet_data):
+    try:
+        # Convert DataFrame to list of dictionaries
+        positions = parquet_data.to_dict('records')
+        
+        # Format the data as expected by the frontend
+        formatted_positions = []
+        for pos in positions:
+            formatted_positions.append({
+                'id': str(pos.get('id', '')),
+                'name': pos.get('position', ''),
+                'startTime': float(pos.get('start_time', 0)),
+                'endTime': float(pos.get('end_time', 0)),
+                'duration': float(pos.get('duration', 0))
+            })
+        
+        return formatted_positions
+    except Exception as e:
+        logger.error(f"Error processing parquet data: {str(e)}")
+        raise
+
+def get_video_url(user_id, job_id):
+    try:
+        job_details = get_job_details(user_id, job_id)
+        if not job_details:
+            raise ValueError(f"Job not found for user_id: {user_id}, job_id: {job_id}")
+        
+        # Assuming the video file name is stored in the 'file_name' attribute
+        video_file_name = job_details.get('file_name')
+        if not video_file_name:
+            raise ValueError(f"Video file name not found for job_id: {job_id}")
+        
+        # Generate a pre-signed URL for the video file
+        video_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': BUCKET_NAME,
+                'Key': video_file_name
+            },
+            ExpiresIn=3600  # URL expires in 1 hour
+        )
+        
+        return video_url
+    except Exception as e:
+        logger.error(f"Error getting video URL: {str(e)}")
+        raise
 
 
 if __name__ == '__main__':
