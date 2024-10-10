@@ -179,11 +179,23 @@ class VideoProcessor:
             logger.error(f"Error in process_video: {str(e)}")
             raise
 
-        
+
+import os
+import time
+import cv2
+import pyarrow as pa
+import pyarrow.parquet as pq
+from datetime import datetime, timedelta
+from .shared_utils import logger, Config, s3_client, update_job_status, BUCKET_NAME, get_job_details
+
 def process_video_async(video_path, output_path, job_id, user_id):
+    start_time = int(time.time())
+    temp_files = []
+
     try:
-        start_time = int(time.time())
         total_frames = get_total_frames(video_path)
+        if total_frames == 0:
+            raise ValueError(f"Invalid video file or no frames detected: {video_path}")
 
         update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path, 
                           processing_start_time=start_time,
@@ -210,15 +222,12 @@ def process_video_async(video_path, output_path, job_id, user_id):
 
         s3_path = f'processed_data/user_id={user_id}/date={submission_date}/{job_id}.parquet'
         parquet_file = f'{output_path}/{job_id}.parquet'
+        temp_files.append(parquet_file)
 
         if os.path.exists(parquet_file):
             s3_client.upload_file(parquet_file, BUCKET_NAME, s3_path)
             logger.info(f"Uploaded {parquet_file} to S3: {s3_path}")
-            
-            os.remove(parquet_file)
-            logger.info(f"Removed local parquet file: {parquet_file}")
         else:
-            logger.error(f"Parquet file not found: {parquet_file}")
             raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
 
         end_time = int(time.time())
@@ -227,20 +236,36 @@ def process_video_async(video_path, output_path, job_id, user_id):
         logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
         return positions
+
     except Exception as e:
         logger.error(f"Error in process_video_async: {str(e)}", exc_info=True)
         update_job_status(job_id, user_id, 'FAILED', 'video', video_path)
         raise
-    finally:
-        for filename in os.listdir(output_path):
-            if filename.startswith(f"frame_{job_id}"):
-                os.remove(os.path.join(output_path, filename))
-        logger.info(f"Cleaned up temporary files for job_id: {job_id}")
 
+    finally:
+        # Clean up temporary files
+        for file in temp_files:
+            if os.path.exists(file):
+                os.remove(file)
+                logger.info(f"Removed temporary file: {file}")
+
+        # Clean up frame files
+        frame_files = [f for f in os.listdir(output_path) if f.startswith(f"frame_{job_id}")]
+        for file in frame_files:
+            os.remove(os.path.join(output_path, file))
+        logger.info(f"Cleaned up {len(frame_files)} temporary frame files for job_id: {job_id}")
 
 def get_total_frames(video_path):
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
-    return total_frames
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise IOError(f"Failed to open video file: {video_path}")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        return total_frames
+    except Exception as e:
+        logger.error(f"Error in get_total_frames: {str(e)}")
+        return 0
+    finally:
+        if cap:
+            cap.release()
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
