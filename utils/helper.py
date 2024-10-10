@@ -166,7 +166,7 @@ class VideoProcessor:
             data = {
                 'job_id': [job_id] * len(positions),
                 'user_id': [user_id] * len(positions),
-                'player_id': [pos['player_id'] for pos in positions],
+                'player_id': [str(pos['player_id']) for pos in positions],  # Convert to string
                 'position': [pos['position'] for pos in positions],
                 'start_time': [pos['start_time'].total_seconds() for pos in positions],
                 'end_time': [pos['end_time'].total_seconds() for pos in positions],
@@ -221,6 +221,9 @@ def process_video_async(video_path, output_path, job_id, user_id):
             update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path,
                               progress=progress,
                               processed_frames=frame_number)
+                              
+        job_id = str(job_id)  # Ensure job_id is a string
+        user_id = str(user_id)  # Ensure user_id is a string
 
         positions = video_processor.process_video(video_path, output_path, job_id, user_id, progress_callback)
         logger.info(f"Video processing completed for job_id: {job_id}")
