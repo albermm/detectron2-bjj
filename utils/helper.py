@@ -1,19 +1,24 @@
-from datetime import datetime, timedelta
-import os
 import cv2
 import torch
 import numpy as np
 import json
 import joblib
+import os
+import time
+import pyarrow as pa
+import pyarrow.parquet as pq
+from datetime import datetime, timedelta
 from detectron2.utils.visualizer import Visualizer as DetectronVisualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from .shared_utils import logger, Config, update_job_status, s3_client, BUCKET_NAME, get_job_details
+from .shared_utils import (
+    logger, Config, update_job_status, s3_client, BUCKET_NAME, 
+    get_job_details, dynamodb_table
+)
 from .find_position import find_position
-import pyarrow as pa
-import pyarrow.parquet as pq
+
 
 class Predictor:
     def __init__(self):
@@ -180,14 +185,6 @@ class VideoProcessor:
             raise
 
 
-import os
-import time
-import cv2
-import pyarrow as pa
-import pyarrow.parquet as pq
-from datetime import datetime, timedelta
-from .shared_utils import logger, Config, s3_client, update_job_status, BUCKET_NAME, get_job_details
-
 def process_video_async(video_path, output_path, job_id, user_id):
     start_time = int(time.time())
     temp_files = []
@@ -218,6 +215,9 @@ def process_video_async(video_path, output_path, job_id, user_id):
         logger.info(f"Video processing completed for job_id: {job_id}")
 
         job_details = get_job_details(job_id, user_id)
+        if job_details is None:
+            raise ValueError(f"Job details not found for job_id: {job_id}, user_id: {user_id}")
+        
         submission_date = job_details.get('submission_date', datetime.utcnow().strftime('%Y-%m-%d'))
 
         s3_path = f'processed_data/user_id={user_id}/date={submission_date}/{job_id}.parquet'

@@ -105,7 +105,22 @@ def validate_file_type(file_type):
 def validate_user_id(user_id):
     if not user_id:
         raise ValueError('User ID is required')
-
+def get_job_details(job_id, user_id):
+    try:
+        response = dynamodb_table.get_item(
+            Key={
+                'PK': f"USER#{user_id}",
+                'SK': f"JOB#{job_id}"
+            }
+        )
+        item = response.get('Item')
+        if not item:
+            logger.warning(f"Job details not found for job_id: {job_id}, user_id: {user_id}")
+            return None
+        return item
+    except Exception as e:
+        logger.error(f"Error retrieving job details for job_id: {job_id}, user_id: {user_id}: {str(e)}")
+        return None
 #Make sure to export all necessary items
 __all__ = [
     'logger',
@@ -122,7 +137,8 @@ __all__ = [
     'update_job_status',
     'get_s3_url',
     'validate_file_type',
-    'validate_user_id'
+    'validate_user_id',
+    'get_job_details'
 ]
 '''
 class Config:
