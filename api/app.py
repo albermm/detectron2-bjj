@@ -357,6 +357,10 @@ def get_job_status(job_id):
         if not item:
             return jsonify({'error': 'Job not found'}), 404
         
+                # Ensure 'progress' field is included for 'PROCESSING' jobs
+        if item.get('status') == 'PROCESSING':
+            item['progress'] = item.get('progress', 0)
+            
         return jsonify(item)
 
     except ValueError as ve:

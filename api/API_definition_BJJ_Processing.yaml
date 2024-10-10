@@ -1,4 +1,4 @@
-swagger: '2.0'
+openapi: 3.0.0
 info:
   title: BJJ Image Processing API
   version: 1.0.0
@@ -12,28 +12,30 @@ paths:
         - name: file_type
           in: query
           required: true
-          type: string
-          enum:
-            - image
-            - video
+          schema:
+            type: string
+            enum: [image, video]
         - name: user_id
           in: query
           required: true
-          type: string
+          schema:
+            type: string
       responses:
         '200':
           description: Successful response
-          schema:
-            type: object
-            properties:
-              presigned_post:
+          content:
+            application/json:    
+              schema:
                 type: object
-              file_name:
-                type: string
-              job_id:
-                type: string
-              user_id:
-                type: string
+                properties:
+                  presigned_post:
+                    type: object
+                  file_name:
+                    type: string
+                  job_id:
+                    type: string
+                  user_id:
+                    type: string
         '400':
           description: Bad request
         '500':
@@ -42,7 +44,7 @@ paths:
         uri: http://52.72.247.7:5000/get_upload_url
         responses:
           default:
-            statusCode: '200'
+            statusCode: "200"
         passthroughBehavior: when_no_match
         httpMethod: GET
         type: http_proxy
@@ -50,35 +52,37 @@ paths:
   /process_image:
     post:
       summary: Process an uploaded image
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              file_name:
-                type: string
-              job_id:
-                type: string
-              user_id:
-                type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_name:
+                  type: string
+                job_id:
+                  type: string
+                user_id:
+                  type: string
       responses:
         '200':
           description: Successful response
-          schema:
-            type: object
-            properties:
-              status:
-                type: string
-              keypoint_image_url:
-                type: string
-              keypoints_json_url:
-                type: string
-              predicted_position:
-                type: string
-              job_id:
-                type: string
+          content:
+            application/json:    
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  keypoint_image_url:
+                    type: string
+                  keypoints_json_url:
+                    type: string
+                  predicted_position:
+                    type: string
+                  job_id:
+                    type: string
         '400':
           description: Bad request
         '500':
@@ -87,7 +91,7 @@ paths:
         uri: http://52.72.247.7:5000/process_image
         responses:
           default:
-            statusCode: '200'
+            statusCode: "200"
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: http_proxy
@@ -95,40 +99,42 @@ paths:
   /process_video:
     post:
       summary: Process an uploaded video
-      parameters:
-        - in: body
-          name: body
-          required: true
-          schema:
-            type: object
-            properties:
-              video_file_name:
-                type: string
-              job_id:
-                type: string
-              user_id:
-                type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                video_file_name:
+                  type: string
+                job_id:
+                  type: string
+                user_id:
+                  type: string
       responses:
         '200':
           description: Successful response
-          schema:
-            type: object
-            properties:
-              status:
-                type: string
-              job_id:
-                type: string
-              user_id:
-                type: string
-              message:
-                type: string
+          content:
+            application/json:    
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  job_id:
+                    type: string
+                  user_id:
+                    type: string
+                  message:
+                    type: string
         '500':
           description: Server error
       x-amazon-apigateway-integration:
         uri: http://52.72.247.7:5000/process_video
         responses:
           default:
-            statusCode: '200'
+            statusCode: "200"
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: http_proxy
@@ -140,33 +146,99 @@ paths:
         - name: job_id
           in: path
           required: true
-          type: string
+          schema:
+            type: string
         - name: user_id
           in: query
           required: true
-          type: string
+          schema:
+            type: string
       responses:
         '200':
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  PK:
+                    type: string
+                  SK:
+                    type: string
+                  status:
+                    type: string
+                  file_type:
+                    type: string
+                  file_name:
+                    type: string
+                  updatedAt:
+                    type: string
+                  position:
+                    type: string
+                  s3_path:
+                    type: string
+        '404':
+          description: Job not found
+        '400':
+          description: Bad request
+        '500':
+          description: Server error
+      x-amazon-apigateway-integration:
+        uri: http://52.72.247.7:5000/get_job_status/{job_id}
+        responses:
+          default:
+            statusCode: "200"
+        requestParameters:
+          integration.request.path.job_id: method.request.path.job_id
+        passthroughBehavior: when_no_match
+        httpMethod: GET
+        type: http_proxy
+
+  /get_processed_data:
+    get:
+      summary: Get processed data for a specific job
+      parameters:
+        - name: user_id
+          in: query
+          required: true
           schema:
-            type: object
-            properties:
-              PK:
-                type: string
-              SK:
-                type: string
-              status:
-                type: string
-              file_type:
-                type: string
-              file_name:
-                type: string
-              updatedAt:
-                type: string
-              position:
-                type: string
-              s3_path:
-                type: string
+            type: string
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  job_id:
+                    type: string
+                  video_url:
+                    type: string
+                  positions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        playerId:
+                          type: string
+                        name:
+                          type: string
+                        startTime:
+                          type: number
+                        endTime:
+                          type: number
+                        duration:
+                          type: number
+                        videoTimestamp:
+                          type: number
         '400':
           description: Bad request
         '404':
@@ -174,60 +246,12 @@ paths:
         '500':
           description: Server error
       x-amazon-apigateway-integration:
-        uri: http://52.72.247.7:5000/get_job_status/{job_id}
-        responses:
-          default:
-            statusCode: '200'
-        requestParameters:
-          integration.request.path.job_id: method.request.path.job_id
-        passthroughBehavior: when_no_match
-        httpMethod: GET
-        type: http_proxy
-
-  /update_position:
-    post:
-      summary: Update a position in the parquet file
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                jobId:
-                  type: string
-                userId:
-                  type: string
-                positionId:
-                  type: string
-                newName:
-                  type: string
-              required:
-                - jobId
-                - userId
-                - positionId
-                - newName
-      responses:
-        '200':
-          description: Successfully updated position
-          content:
-            application/json:    
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-        '400':
-          description: Bad request
-        '500':
-          description: Server error
-      x-amazon-apigateway-integration:
-        uri: http://52.72.247.7:5000/update_position
+        uri: http://52.72.247.7:5000/get_processed_data
         responses:
           default:
             statusCode: "200"
         passthroughBehavior: when_no_match
-        httpMethod: POST
+        httpMethod: GET
         type: http_proxy
 
 components:

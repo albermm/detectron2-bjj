@@ -217,7 +217,7 @@ def process_video_async(video_path, output_path, job_id, user_id):
         logger.info(f"Starting video processing for job_id: {job_id}")
 
         def progress_callback(frame_number):
-            progress = (frame_number / total_frames) * 100
+            progress = round(min(100, max(0, (frame_number / total_frames) * 100)), 0)
             update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path,
                               progress=progress,
                               processed_frames=frame_number)
