@@ -174,7 +174,18 @@ class VideoProcessor:
                 'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
             }
 
-            table = pa.Table.from_pydict(data)
+            schema = pa.schema([
+                ('job_id', pa.string()),
+                ('user_id', pa.string()),
+                ('player_id', pa.string()),
+                ('position', pa.string()),
+                ('start_time', pa.float64()),
+                ('end_time', pa.float64()),
+                ('duration', pa.float64()),
+                ('video_timestamp', pa.float64())
+            ])
+
+            table = pa.Table.from_pydict(data, schema=schema)
             parquet_file = f'{output_path}/{job_id}.parquet'
             pq.write_table(table, parquet_file)
             logger.info(f"Parquet file written: {parquet_file}")
@@ -232,7 +243,10 @@ def process_video_async(video_path, output_path, job_id, user_id):
 
         end_time = int(time.time())
         update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, 
-                          s3_path=s3_path, processing_end_time=end_time)
+                          s3_path=s3_path, 
+                          processing_end_time=end_time,
+                          total_frames=total_frames,
+                          processed_frames=total_frames)  # Set processed_frames to total_frames on completion
         logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
         return positions

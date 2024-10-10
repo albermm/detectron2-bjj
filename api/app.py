@@ -415,7 +415,7 @@ def update_position():
         logger.error(f"Error in update_position: {str(e)}")
         return jsonify({'error': 'An error occurred while updating the position'}), 500
 
-        
+
 @app.route('/get_processed_data', methods=['GET'])
 def get_processed_data():
     """
@@ -485,6 +485,8 @@ def get_processed_data():
         video_url = get_video_url(user_id, job_id)
         
         return jsonify({
+            'user_id': user_id,
+            'job_id': job_id,
             'video_url': video_url,
             'positions': positions
         })
@@ -532,11 +534,12 @@ def process_parquet_data(parquet_data):
         formatted_positions = []
         for pos in positions:
             formatted_positions.append({
-                'id': str(pos.get('id', '')),
+                'playerId': pos.get('player_id', ''),
                 'name': pos.get('position', ''),
                 'startTime': float(pos.get('start_time', 0)),
                 'endTime': float(pos.get('end_time', 0)),
-                'duration': float(pos.get('duration', 0))
+                'duration': float(pos.get('duration', 0)),
+                'videoTimestamp': float(pos.get('video_timestamp', 0))
             })
         
         return formatted_positions
