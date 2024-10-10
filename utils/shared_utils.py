@@ -66,19 +66,19 @@ def update_job_status(job_id, user_id, status, file_type, file_name, position=No
     try:
         now = datetime.utcnow()
         item = {
-            'PK': {'S': f"USER#{user_id}"},
-            'SK': {'S': f"JOB#{job_id}"},
-            'status': {'S': status},
-            'file_type': {'S': file_type},
-            'file_name': {'S': file_name},
-            'updatedAt': {'S': now.isoformat()},
-            'updatedAtTimestamp': {'N': str(int(now.timestamp()))}
+            'PK': f"USER#{user_id}",
+            'SK': f"JOB#{job_id}",
+            'status': status,
+            'file_type': file_type,
+            'file_name': file_name,
+            'updatedAt': now.isoformat(),
+            'updatedAtTimestamp': int(now.timestamp())
         }
 
         if position:
-            item['position'] = {'S': position}
+            item['position'] = position
         if s3_path:
-            item['s3_path'] = {'S': s3_path}
+            item['s3_path'] = s3_path
 
         # Add any additional kwargs to the item
         for key, value in kwargs.items():

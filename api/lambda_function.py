@@ -12,7 +12,7 @@ logger.setLevel(logging.INFO)
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table(os.environ['BJJ_App_Table'])
+table = dynamodb.Table(os.environ['DYNAMODB_TABLE_NAME'])
 http = urllib3.PoolManager()
 
 def lambda_handler(event, context):
