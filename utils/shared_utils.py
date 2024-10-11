@@ -18,7 +18,7 @@ class Config:
     DYNAMODB_TABLE_NAME = os.getenv('DYNAMODB_TABLE_NAME', 'BJJ_App_Table')
     EC2_BASE_URL = os.getenv('EC2_BASE_URL', 'http://52.72.247.7:5000')
     APP_PORT = int(os.getenv('APP_PORT', 5000))
-    S3_REGION = Config.S3_REGION 
+    S3_REGION = os.getenv('S3_REGION', 'us-east-1')
 
     # S3 configuration
     MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
@@ -54,6 +54,7 @@ BUCKET_NAME = Config.BUCKET_NAME
 DYNAMODB_TABLE_NAME = Config.DYNAMODB_TABLE_NAME
 EC2_BASE_URL = Config.EC2_BASE_URL
 APP_PORT = Config.APP_PORT
+S3_REGION = Config.S3_REGION
 
 # AWS clients
 s3_client = boto3.client('s3', region_name=S3_REGION, config=BotoConfig(signature_version='s3v4'))
