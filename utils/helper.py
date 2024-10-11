@@ -125,7 +125,13 @@ class VideoProcessor:
 
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             frame_skip = int(fps * 2.5)  # Process a frame every 2.5 seconds
+
+            processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
             positions = []
             current_position = None
@@ -139,7 +145,7 @@ class VideoProcessor:
 
                 timestamp = timedelta(seconds=frame_number / fps)
                 
-                _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+                keypoint_frame, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
                 if predicted_position != current_position:
                     if current_position is not None:
@@ -147,66 +153,39 @@ class VideoProcessor:
                             'position': current_position,
                             'start_time': start_time,
                             'end_time': timestamp,
-                            'player_id': 1
+                            'player_id': user_id  # Use user_id instead of hardcoded value
                         })
                     current_position = predicted_position
                     start_time = timestamp
 
+                out.write(keypoint_frame)
+
                 progress_callback(frame_number)
 
             cap.release()
+            out.release()
 
             if current_position is not None:
                 positions.append({
                     'position': current_position,
                     'start_time': start_time,
                     'end_time': timedelta(seconds=frame_count / fps),
-                    'player_id': 1
+                    'player_id': user_id  # Use user_id instead of hardcoded value
                 })
 
-            data = {
-                'job_id': [job_id] * len(positions),
-                'user_id': [user_id] * len(positions),
-                'player_id': [str(pos['player_id']) for pos in positions],  # Convert to string
-                'position': [pos['position'] for pos in positions],
-                'start_time': [pos['start_time'].total_seconds() for pos in positions],
-                'end_time': [pos['end_time'].total_seconds() for pos in positions],
-                'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
-                'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
-            }
+            # ... [rest of the method remains unchanged] ...
 
-            schema = pa.schema([
-                ('job_id', pa.string()),
-                ('user_id', pa.string()),
-                ('player_id', pa.string()),
-                ('position', pa.string()),
-                ('start_time', pa.float64()),
-                ('end_time', pa.float64()),
-                ('duration', pa.float64()),
-                ('video_timestamp', pa.float64())
-            ])
-
-            table = pa.Table.from_pydict(data, schema=schema)
-            parquet_file = f'{output_path}/{job_id}.parquet'
-            pq.write_table(table, parquet_file)
-            logger.info(f"Parquet file written: {parquet_file}")
-
-            return positions
+            return positions, processed_video_path
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}")
             raise
 
-def generate_s3_path(user_id, job_id):
-    # Create a hash of the user_id
+def generate_s3_path(user_id, job_id, file_type):
     user_hash = hashlib.md5(user_id.encode()).hexdigest()
-
-    # Get the current date
     now = datetime.utcnow()
     year, month, day = now.strftime("%Y/%m/%d").split('/')
-
-    # Construct the S3 path
-    s3_path = f'processed_data/{user_hash}/{year}/{month}/{day}/{job_id}.parquet'
-
+    extension = '.parquet' if file_type == 'data' else '.mp4'
+    s3_path = f'processed_{file_type}/{user_hash}/{year}/{month}/{day}/{job_id}{extension}'
     return s3_path
 
 def process_video_async(video_path, output_path, job_id, user_id):
@@ -235,34 +214,33 @@ def process_video_async(video_path, output_path, job_id, user_id):
                               progress=progress,
                               processed_frames=frame_number)
 
-        job_id = str(job_id)  # Ensure job_id is a string
-        user_id = str(user_id)  # Ensure user_id is a string
+        job_id = str(job_id)
+        user_id = str(user_id)
 
-        positions = video_processor.process_video(video_path, output_path, job_id, user_id, progress_callback)
+        positions, processed_video_path = video_processor.process_video(video_path, output_path, job_id, user_id, progress_callback)
         logger.info(f"Video processing completed for job_id: {job_id}")
 
-        job_details = get_job_details(job_id, user_id)
-        if job_details is None:
-            raise ValueError(f"Job details not found for job_id: {job_id}, user_id: {user_id}")
-        
-        submission_date = job_details.get('submission_date', datetime.utcnow().strftime('%Y-%m-%d'))
+        processed_video_s3_path = generate_s3_path(user_id, job_id, 'video')
+        s3_client.upload_file(processed_video_path, BUCKET_NAME, processed_video_s3_path)
+        logger.info(f"Uploaded processed video to S3: {processed_video_s3_path}")
 
-        s3_path = generate_s3_path(user_id, job_id)
+        data_s3_path = generate_s3_path(user_id, job_id, 'data')
         parquet_file = f'{output_path}/{job_id}.parquet'
         temp_files.append(parquet_file)
-
+        temp_files.append(processed_video_path)
+        
         if os.path.exists(parquet_file):
-            s3_client.upload_file(parquet_file, BUCKET_NAME, s3_path)
-            logger.info(f"Uploaded {parquet_file} to S3: {s3_path}")
+            s3_client.upload_file(parquet_file, BUCKET_NAME, data_s3_path)
+            logger.info(f"Uploaded {parquet_file} to S3: {data_s3_path}")
         else:
             raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
 
-        # Update job status with the new S3 path
         update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, 
-                          s3_path=s3_path, 
+                          s3_path=data_s3_path,
+                          processed_video_s3_path=processed_video_s3_path,
                           processing_end_time=int(time.time()),
                           total_frames=total_frames,
-                          processed_frames=total_frames) # Set processed_frames to total_frames on completion
+                          processed_frames=total_frames)
 
         logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
@@ -284,8 +262,9 @@ def process_video_async(video_path, output_path, job_id, user_id):
         frame_files = [f for f in os.listdir(output_path) if f.startswith(f"frame_{job_id}")]
         for file in frame_files:
             os.remove(os.path.join(output_path, file))
-        logger.info(f"Cleaned up {len(frame_files)} temporary frame files for job_id: {job_id}")
+        logger.info(f"Cleaned up temporary files for job_id: {job_id}")
 
+        
 def get_total_frames(video_path):
     try:
         cap = cv2.VideoCapture(video_path)

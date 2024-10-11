@@ -463,11 +463,11 @@ def get_processed_data():
       500:
         description: Server error
     """
+
     user_id = request.args.get('user_id')
     job_id = request.args.get('job_id')
-    s3_path = request.args.get('s3_path')
 
-    logger.info(f"Received request for processed data. User ID: {user_id}, Job ID: {job_id}, S3 Path: {s3_path}")
+    logger.info(f"Received request for processed data. User ID: {user_id}, Job ID: {job_id}")
 
     if not user_id or not job_id:
         return jsonify({'error': 'Missing user_id or job_id'}), 400
@@ -478,10 +478,11 @@ def get_processed_data():
         if not job_details:
             return jsonify({'error': 'Job not found'}), 404
 
-        if not s3_path:
-            s3_path = job_details.get('s3_path')
-            if not s3_path:
-                return jsonify({'error': 'Processed data not found'}), 404
+        s3_path = job_details.get('s3_path')
+        processed_video_s3_path = job_details.get('processed_video_s3_path')
+
+        if not s3_path or not processed_video_s3_path:
+            return jsonify({'error': 'Processed data not found'}), 404
 
         # Read parquet file from S3
         parquet_data = read_parquet_from_s3(s3_path)
@@ -490,12 +491,16 @@ def get_processed_data():
         positions = process_parquet_data(parquet_data)
         
         # Get video URL
-        video_url = get_video_url(user_id, job_id)
+        try:
+            video_url = get_video_url(processed_video_s3_path)
+        except Exception as e:
+            logger.error(f"Error getting video URL: {str(e)}")
+            video_url = None
         
         return jsonify({
-            'user_id': user_id,
-            'job_id': job_id,
-            'video_url': video_url,
+            'userId': user_id,
+            'jobId': job_id,
+            'videoUrl': video_url,
             'positions': positions
         })
     except Exception as e:
@@ -547,14 +552,12 @@ def read_parquet_from_s3(s3_path):
 
 def process_parquet_data(parquet_data):
     try:
-        # Convert DataFrame to list of dictionaries
         positions = parquet_data.to_dict('records')
         
-        # Format the data as expected by the frontend
         formatted_positions = []
         for pos in positions:
             formatted_positions.append({
-                'playerId': pos.get('player_id', ''),
+                'id': pos.get('player_id', ''),
                 'name': pos.get('position', ''),
                 'startTime': float(pos.get('start_time', 0)),
                 'endTime': float(pos.get('end_time', 0)),
@@ -567,30 +570,26 @@ def process_parquet_data(parquet_data):
         logger.error(f"Error processing parquet data: {str(e)}")
         raise
 
-def get_video_url(user_id, job_id):
+
+
+def get_video_url(video_s3_path):
     try:
-        job_details = get_job_details(user_id, job_id)
-        if not job_details:
-            raise ValueError(f"Job not found for user_id: {user_id}, job_id: {job_id}")
+        logger.info(f"Generating presigned URL for bucket: {BUCKET_NAME}, key: {video_s3_path}")
         
-        # Assuming the video file name is stored in the 'file_name' attribute
-        video_file_name = job_details.get('file_name')
-        if not video_file_name:
-            raise ValueError(f"Video file name not found for job_id: {job_id}")
-        
-        # Generate a pre-signed URL for the video file
         video_url = s3_client.generate_presigned_url(
             'get_object',
             Params={
                 'Bucket': BUCKET_NAME,
-                'Key': video_file_name
+                'Key': video_s3_path
             },
             ExpiresIn=3600  # URL expires in 1 hour
         )
-        
+        logger.info(f"Generated presigned URL: {video_url}")
         return video_url
-    except Exception as e:
-        logger.error(f"Error getting video URL: {str(e)}")
+    except ClientError as e:
+        logger.error(f"ClientError generating presigned URL: {e}")
+        if e.response['Error']['Code'] == 'AccessDenied':
+            logger.error("Access Denied. Check IAM permissions for S3:GetObject")
         raise
 
 
