@@ -249,6 +249,46 @@ def process_video():
         description: Server error
     """
 
+# ... [previous imports and setup remain unchanged] ...
+
+@app.route('/process_video', methods=['POST'])
+def process_video():
+    """
+    Process an uploaded video
+    ---
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            file_name:
+              type: string
+            job_id:
+              type: string
+            user_id:
+              type: string
+            frame_interval:
+              type: number
+              default: 2.5
+    responses:
+      200:
+        description: Successful response
+        schema:
+          properties:
+            status:
+              type: string
+            job_id:
+              type: string
+            user_id:
+              type: string
+            message:
+              type: string
+      500:
+        description: Server error
+    """
+
     try:
         data = request.json
         if not data:
@@ -257,6 +297,7 @@ def process_video():
         file_name = data.get('file_name')
         job_id = data.get('job_id')
         user_id = data.get('user_id')
+        frame_interval = data.get('frame_interval', 2.5)
 
         if not all([file_name, job_id, user_id]):
             missing = [k for k, v in {'file_name': file_name, 'job_id': job_id, 'user_id': user_id}.items() if not v]
@@ -270,7 +311,7 @@ def process_video():
         output_path = '/tmp/output'
         
         # Start video processing in a background thread
-        thread = Thread(target=process_video_async, args=(local_video_path, output_path, job_id, user_id))
+        thread = Thread(target=process_video_async, args=(local_video_path, output_path, job_id, user_id, frame_interval))
         thread.start()
 
         return jsonify({
@@ -282,9 +323,10 @@ def process_video():
 
     except Exception as e:
         logger.error(f"Error in process_video: {str(e)}")
-        if job_id and user_id and video_file_name:
-            update_job_status(job_id, user_id, 'FAILED', 'video', video_file_name)
+        if job_id and user_id and file_name:
+            update_job_status(job_id, user_id, 'FAILED', 'video', file_name)
         return jsonify({'error': 'An error occurred while processing the video'}), 500
+
 
 @app.route('/get_job_status/<job_id>', methods=['GET'])
 def get_job_status(job_id):
