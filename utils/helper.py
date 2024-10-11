@@ -19,7 +19,7 @@ from .shared_utils import (
     get_job_details, dynamodb_table
 )
 from .find_position import find_position
-
+from .assign_players import assign_players
 
 class Predictor:
     def __init__(self):
@@ -112,10 +112,10 @@ class Predictor:
             logger.error(f"Error in onImage: {str(e)}")
             return None, None, None
 
-
 class VideoProcessor:
-    def __init__(self):
+    def __init__(self, frame_interval=2.5):
         self.predictor = Predictor()
+        self.frame_interval = frame_interval
 
     def process_video(self, video_path, output_path, job_id, user_id, progress_callback):
         try:
@@ -127,15 +127,15 @@ class VideoProcessor:
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            frame_skip = int(fps * 2.5)  # Process a frame every 2.5 seconds
+            frame_skip = int(fps * self.frame_interval)
 
             processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
             positions = []
-            current_position = None
-            start_time = None
+            current_positions = {1: None, 2: None}
+            start_times = {1: None, 2: None}
 
             for frame_number in range(0, frame_count, frame_skip):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -145,18 +145,23 @@ class VideoProcessor:
 
                 timestamp = timedelta(seconds=frame_number / fps)
                 
-                keypoint_frame, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+                keypoint_frame, keypoints, predicted_positions = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
-                if predicted_position != current_position:
-                    if current_position is not None:
-                        positions.append({
-                            'position': current_position,
-                            'start_time': start_time,
-                            'end_time': timestamp,
-                            'player_id': user_id  # Use user_id instead of hardcoded value
-                        })
-                    current_position = predicted_position
-                    start_time = timestamp
+                # Assign players based on the keypoints
+                assigned_positions = assign_players(predicted_positions[0], predicted_positions[1], 
+                                                    current_positions.get(1, []), current_positions.get(2, []))
+
+                for player_id, position in assigned_positions.items():
+                    if position != current_positions[player_id]:
+                        if current_positions[player_id] is not None:
+                            positions.append({
+                                'position': current_positions[player_id],
+                                'start_time': start_times[player_id],
+                                'end_time': timestamp,
+                                'player_id': player_id
+                            })
+                        current_positions[player_id] = position
+                        start_times[player_id] = timestamp
 
                 out.write(keypoint_frame)
 
@@ -165,15 +170,15 @@ class VideoProcessor:
             cap.release()
             out.release()
 
-            if current_position is not None:
-                positions.append({
-                    'position': current_position,
-                    'start_time': start_time,
-                    'end_time': timedelta(seconds=frame_count / fps),
-                    'player_id': user_id  # Use user_id instead of hardcoded value
-                })
-
-            # ... [rest of the method remains unchanged] ...
+            # Add final positions
+            for player_id, position in current_positions.items():
+                if position is not None:
+                    positions.append({
+                        'position': position,
+                        'start_time': start_times[player_id],
+                        'end_time': timedelta(seconds=frame_count / fps),
+                        'player_id': player_id
+                    })
 
             return positions, processed_video_path
         except Exception as e:
@@ -188,7 +193,8 @@ def generate_s3_path(user_id, job_id, file_type):
     s3_path = f'processed_{file_type}/{user_hash}/{year}/{month}/{day}/{job_id}{extension}'
     return s3_path
 
-def process_video_async(video_path, output_path, job_id, user_id):
+
+def process_video_async(video_path, output_path, job_id, user_id, frame_interval=2.5):
     start_time = int(time.time())
     temp_files = []
 
@@ -205,7 +211,7 @@ def process_video_async(video_path, output_path, job_id, user_id):
         os.makedirs(output_path, exist_ok=True)
         logger.info(f"Created output directory: {output_path}")
 
-        video_processor = VideoProcessor()
+        video_processor = VideoProcessor(frame_interval)
         logger.info(f"Starting video processing for job_id: {job_id}")
 
         def progress_callback(frame_number):
@@ -264,7 +270,7 @@ def process_video_async(video_path, output_path, job_id, user_id):
             os.remove(os.path.join(output_path, file))
         logger.info(f"Cleaned up temporary files for job_id: {job_id}")
 
-        
+
 def get_total_frames(video_path):
     try:
         cap = cv2.VideoCapture(video_path)
