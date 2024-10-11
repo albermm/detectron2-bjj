@@ -106,12 +106,14 @@ paths:
             schema:
               type: object
               properties:
-                video_file_name:
+                file_name:
                   type: string
                 job_id:
                   type: string
                 user_id:
                   type: string
+                frame_interval:
+                  type: number
       responses:
         '200':
           description: Successful response
@@ -171,12 +173,14 @@ paths:
                     type: string
                   file_name:
                     type: string
-                  updatedAt:
-                    type: string
-                  position:
+                  updated_at:
                     type: string
                   s3_path:
                     type: string
+                  processed_video_s3_path:
+                    type: string
+                  progress:
+                    type: number
         '404':
           description: Job not found
         '400':
@@ -227,17 +231,17 @@ paths:
                     items:
                       type: object
                       properties:
-                        playerId:
+                        player_id:
                           type: string
                         name:
                           type: string
-                        startTime:
+                        start_time:
                           type: number
-                        endTime:
+                        end_time:
                           type: number
                         duration:
                           type: number
-                        videoTimestamp:
+                        video_timestamp:
                           type: number
         '400':
           description: Bad request

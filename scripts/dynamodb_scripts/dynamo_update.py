@@ -18,18 +18,22 @@ def update_item(pk, sk):
             },
             UpdateExpression="SET createdAt = if_not_exists(createdAt, :current_time), "
                              "updatedAt = :current_time, "
+                             "updatedAtTimestamp = :current_time, "
                              "submission_date = if_not_exists(submission_date, :submission_date), "
                              "processing_start_time = if_not_exists(processing_start_time, :current_time), "
                              "processing_end_time = if_not_exists(processing_end_time, :current_time), "
                              "expiry_date = :expiry_date, "
                              "#status = if_not_exists(#status, :pending_status), "
-                             "file_type = if_not_exists(file_type, :unknown_type)",
+                             "file_type = if_not_exists(file_type, :unknown_type), "
+                             "timetolive = :ttl "
+                             "REMOVE positions, keypoint_image_url",
             ExpressionAttributeValues={
                 ':current_time': current_time,
                 ':submission_date': submission_date,
                 ':expiry_date': one_year_from_now,
                 ':pending_status': 'PENDING',
-                ':unknown_type': 'unknown'
+                ':unknown_type': 'unknown',
+                ':ttl': one_year_from_now
             },
             ExpressionAttributeNames={
                 '#status': 'status'  # 'status' is a reserved word in DynamoDB
@@ -75,6 +79,14 @@ for item in items:
             Key={'PK': pk, 'SK': sk},
             UpdateExpression="SET image_url = :val REMOVE keypoint_image_url",
             ExpressionAttributeValues={':val': item['keypoint_image_url']}
+        )
+
+    # Add processed_video_s3_path if it doesn't exist
+    if 'processed_video_s3_path' not in item:
+        table.update_item(
+            Key={'PK': pk, 'SK': sk},
+            UpdateExpression="SET processed_video_s3_path = if_not_exists(processed_video_s3_path, :empty)",
+            ExpressionAttributeValues={':empty': ''}
         )
 
 # Handle pagination if there are more items

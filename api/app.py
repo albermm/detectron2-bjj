@@ -599,7 +599,7 @@ def process_parquet_data(parquet_data):
         formatted_positions = []
         for pos in positions:
             formatted_positions.append({
-                'id': pos.get('player_id', ''),
+                'playerId': pos.get('player_id', ''),
                 'name': pos.get('position', ''),
                 'startTime': float(pos.get('start_time', 0)),
                 'endTime': float(pos.get('end_time', 0)),

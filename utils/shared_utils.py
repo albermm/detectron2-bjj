@@ -64,23 +64,23 @@ dynamodb_table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 def generate_job_id():
     return str(uuid.uuid4())
 
-def update_job_status(job_id, user_id, status, file_type, file_name, position=None, s3_path=None, **kwargs):
+def update_job_status(job_id, user_id, status, file_type, file_name, s3_path=None, processed_video_s3_path=None, **kwargs):
     try:
         now = datetime.utcnow()
         item = {
-            'PK': f"USER#{user_id}",
-            'SK': f"JOB#{job_id}",
-            'status': status,
-            'file_type': file_type,
-            'file_name': file_name,
-            'updatedAt': now.isoformat(),
-            'updatedAtTimestamp': int(now.timestamp())
+            'PK': {'S': f"USER#{user_id}"},
+            'SK': {'S': f"JOB#{job_id}"},
+            'status': {'S': status},
+            'file_type': {'S': file_type},
+            'file_name': {'S': file_name},
+            'updatedAt': {'S': now.isoformat()},
+            'updatedAtTimestamp': {'N': str(int(now.timestamp()))}
         }
 
-        if position:
-            item['position'] = position
         if s3_path:
-            item['s3_path'] = s3_path
+            item['s3_path'] = {'S': s3_path}
+        if processed_video_s3_path:
+            item['processed_video_s3_path'] = {'S': processed_video_s3_path}
 
         # Add any additional kwargs to the item
         for key, value in kwargs.items():
