@@ -465,7 +465,7 @@ def get_processed_data():
     """
     user_id = request.args.get('user_id')
     job_id = request.args.get('job_id')
-   
+    s3_path = request.args.get('s3_path')
 
     logger.info(f"Received request for processed data. User ID: {user_id}, Job ID: {job_id}, S3 Path: {s3_path}")
 
@@ -478,9 +478,10 @@ def get_processed_data():
         if not job_details:
             return jsonify({'error': 'Job not found'}), 404
 
-        s3_path = job_details.get('s3_path')
         if not s3_path:
-            return jsonify({'error': 'Processed data not found'}), 404
+            s3_path = job_details.get('s3_path')
+            if not s3_path:
+                return jsonify({'error': 'Processed data not found'}), 404
 
         # Read parquet file from S3
         parquet_data = read_parquet_from_s3(s3_path)
