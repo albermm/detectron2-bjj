@@ -517,17 +517,12 @@ def get_job_details(user_id, job_id):
 
 def read_parquet_from_s3(s3_path):
     try:
-        # Extract bucket and key from s3_path
-        path_parts = s3_path.replace("s3://", "").split("/")
+        
         bucket = BUCKET_NAME
-        key = "/".join(path_parts[1:])
+        key = s3_path  # The entire s3_path is now the key
 
         logger.info(f"Attempting to read from bucket: {bucket}, key: {key}")
         logger.info(f"S3 client region: {s3_client.meta.region_name}")
-
-        if bucket not in available_buckets:
-            logger.error(f"Bucket {bucket} is not in the list of available buckets")
-            raise Exception(f"Bucket {bucket} does not exist or is not accessible")
         
         # Read the parquet file from S3
         response = s3_client.get_object(Bucket=bucket, Key=key)
@@ -535,10 +530,20 @@ def read_parquet_from_s3(s3_path):
         
         # Read the parquet file into a pandas DataFrame
         df = pd.read_parquet(parquet_file)
+        logger.info(f"Successfully read parquet file. DataFrame shape: {df.shape}")
         return df
     except ClientError as e:
-        logger.error(f"Error reading parquet file from S3: {str(e)}")
+        error_code = e.response['Error']['Code']
+        if error_code == 'NoSuchKey':
+            logger.error(f"The specified key does not exist: {key}")
+        elif error_code == 'NoSuchBucket':
+            logger.error(f"The specified bucket does not exist: {bucket}")
+        else:
+            logger.error(f"Error reading parquet file from S3: {str(e)}")
         raise
+    except Exception as e:
+        logger.error(f"Unexpected error reading parquet file from S3: {str(e)}")
+        raise 
 
 def process_parquet_data(parquet_data):
     try:
