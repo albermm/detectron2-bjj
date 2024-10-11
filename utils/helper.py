@@ -5,6 +5,7 @@ import json
 import joblib
 import os
 import time
+import hashlib
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime, timedelta
@@ -195,6 +196,18 @@ class VideoProcessor:
             logger.error(f"Error in process_video: {str(e)}")
             raise
 
+def generate_s3_path(user_id, job_id):
+    # Create a hash of the user_id
+    user_hash = hashlib.md5(user_id.encode()).hexdigest()
+
+    # Get the current date
+    now = datetime.utcnow()
+    year, month, day = now.strftime("%Y/%m/%d").split('/')
+
+    # Construct the S3 path
+    s3_path = f'processed_data/{user_hash}/{year}/{month}/{day}/{job_id}.parquet'
+
+    return s3_path
 
 def process_video_async(video_path, output_path, job_id, user_id):
     start_time = int(time.time())
@@ -221,7 +234,7 @@ def process_video_async(video_path, output_path, job_id, user_id):
             update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path,
                               progress=progress,
                               processed_frames=frame_number)
-                              
+
         job_id = str(job_id)  # Ensure job_id is a string
         user_id = str(user_id)  # Ensure user_id is a string
 
@@ -234,7 +247,7 @@ def process_video_async(video_path, output_path, job_id, user_id):
         
         submission_date = job_details.get('submission_date', datetime.utcnow().strftime('%Y-%m-%d'))
 
-        s3_path = f'processed_data/user_id={user_id}/date={submission_date}/{job_id}.parquet'
+        s3_path = generate_s3_path(user_id, job_id)
         parquet_file = f'{output_path}/{job_id}.parquet'
         temp_files.append(parquet_file)
 
@@ -244,12 +257,13 @@ def process_video_async(video_path, output_path, job_id, user_id):
         else:
             raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
 
-        end_time = int(time.time())
+        # Update job status with the new S3 path
         update_job_status(job_id, user_id, 'COMPLETED', 'video', video_path, 
                           s3_path=s3_path, 
-                          processing_end_time=end_time,
+                          processing_end_time=int(time.time()),
                           total_frames=total_frames,
-                          processed_frames=total_frames)  # Set processed_frames to total_frames on completion
+                          processed_frames=total_frames) # Set processed_frames to total_frames on completion
+
         logger.info(f"Updated job status to COMPLETED for job_id: {job_id}")
 
         return positions

@@ -360,7 +360,7 @@ def get_job_status(job_id):
                 # Ensure 'progress' field is included for 'PROCESSING' jobs
         if item.get('status') == 'PROCESSING':
             item['progress'] = item.get('progress', 0)
-            
+
         return jsonify(item)
 
     except ValueError as ve:
@@ -465,6 +465,9 @@ def get_processed_data():
     """
     user_id = request.args.get('user_id')
     job_id = request.args.get('job_id')
+   
+
+    logger.info(f"Received request for processed data. User ID: {user_id}, Job ID: {job_id}, S3 Path: {s3_path}")
 
     if not user_id or not job_id:
         return jsonify({'error': 'Missing user_id or job_id'}), 400
@@ -515,9 +518,16 @@ def read_parquet_from_s3(s3_path):
     try:
         # Extract bucket and key from s3_path
         path_parts = s3_path.replace("s3://", "").split("/")
-        bucket = path_parts[0]
+        bucket = BUCKET_NAME
         key = "/".join(path_parts[1:])
 
+        logger.info(f"Attempting to read from bucket: {bucket}, key: {key}")
+        logger.info(f"S3 client region: {s3_client.meta.region_name}")
+
+        if bucket not in available_buckets:
+            logger.error(f"Bucket {bucket} is not in the list of available buckets")
+            raise Exception(f"Bucket {bucket} does not exist or is not accessible")
+        
         # Read the parquet file from S3
         response = s3_client.get_object(Bucket=bucket, Key=key)
         parquet_file = io.BytesIO(response['Body'].read())
