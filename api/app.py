@@ -226,43 +226,6 @@ def process_video():
         schema:
           type: object
           properties:
-            video_file_name:
-              type: string
-            job_id:
-              type: string
-            user_id:
-              type: string
-    responses:
-      200:
-        description: Successful response
-        schema:
-          properties:
-            status:
-              type: string
-            job_id:
-              type: string
-            user_id:
-              type: string
-            message:
-              type: string
-      500:
-        description: Server error
-    """
-
-# ... [previous imports and setup remain unchanged] ...
-
-@app.route('/process_video', methods=['POST'])
-def process_video():
-    """
-    Process an uploaded video
-    ---
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
             file_name:
               type: string
             job_id:
