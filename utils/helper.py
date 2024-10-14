@@ -9,6 +9,7 @@ import hashlib
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime, timedelta
+from typing import List, Tuple, Dict
 from detectron2.utils.visualizer import Visualizer as DetectronVisualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
@@ -105,11 +106,11 @@ class Predictor:
             return None, None, None
 
 class VideoProcessor:
-    def __init__(self, frame_interval=2.5):
+    def __init__(self, frame_interval: float = 2.5):
         self.predictor = Predictor()
         self.frame_interval = frame_interval
 
-    def process_video(self, video_path, output_path, job_id, user_id, progress_callback):
+    def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
         try:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
@@ -125,9 +126,9 @@ class VideoProcessor:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
-            positions = []
-            current_positions = {1: None, 2: None}
-            start_times = {1: None, 2: None}
+            positions: List[Dict] = []
+            current_positions: Dict[int, Optional[np.ndarray]] = {1: None, 2: None}
+            start_times: Dict[int, Optional[timedelta]] = {1: None, 2: None}
 
             for frame_number in range(0, frame_count, frame_skip):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -139,26 +140,31 @@ class VideoProcessor:
                 
                 keypoint_frame, keypoints, predicted_positions = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
+                if keypoint_frame is not None:
+                    out.write(keypoint_frame)
+                else:
+                    logger.warning(f"Skipping frame {frame_number} due to None keypoint_frame")
+
                 if predicted_positions and len(predicted_positions) >= 2:
+                    # Convert predicted_positions to numpy arrays
+                    predicted_positions = [np.array(pos) for pos in predicted_positions]
                     assigned_positions = assign_players(predicted_positions[0], predicted_positions[1], 
-                                                        current_positions.get(1, []), current_positions.get(2, []))
+                                                        current_positions.get(1), current_positions.get(2))
                 else:
                     assigned_positions = {1: predicted_positions[0] if predicted_positions else None,
                                           2: predicted_positions[1] if len(predicted_positions) > 1 else None}
 
                 for player_id, position in assigned_positions.items():
-                    if position != current_positions[player_id]:
+                    if position is not None and (current_positions[player_id] is None or not np.array_equal(position, current_positions[player_id])):
                         if current_positions[player_id] is not None:
                             positions.append({
-                                'position': current_positions[player_id],
+                                'position': current_positions[player_id].tolist(),  # Convert numpy array to list
                                 'start_time': start_times[player_id],
                                 'end_time': timestamp,
                                 'player_id': player_id
                             })
                         current_positions[player_id] = position
                         start_times[player_id] = timestamp
-
-                out.write(keypoint_frame)
 
                 progress_callback(frame_number)
 
@@ -169,7 +175,7 @@ class VideoProcessor:
             for player_id, position in current_positions.items():
                 if position is not None:
                     positions.append({
-                        'position': position,
+                        'position': position.tolist(),  # Convert numpy array to list
                         'start_time': start_times[player_id],
                         'end_time': timedelta(seconds=frame_count / fps),
                         'player_id': player_id
