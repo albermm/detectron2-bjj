@@ -97,17 +97,9 @@ class Predictor:
             with open(f"{output_path}_keypoints.json", 'w') as f:
                 json.dump(keypoints, f)
 
-            predicted_position = find_position(keypoints)
+            predicted_positions = find_position(keypoints)
 
-            return keypoint_frame, keypoints, predicted_position
-        except Exception as e:
-            logger.error(f"Error in onImage: {str(e)}")
-            return None, None, None
-
-
-            predicted_position = find_position(keypoints)
-
-            return keypoint_frame, keypoints, predicted_position
+            return keypoint_frame, keypoints, predicted_positions
         except Exception as e:
             logger.error(f"Error in onImage: {str(e)}")
             return None, None, None
@@ -147,9 +139,12 @@ class VideoProcessor:
                 
                 keypoint_frame, keypoints, predicted_positions = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
-                # Assign players based on the keypoints
-                assigned_positions = assign_players(predicted_positions[0], predicted_positions[1], 
-                                                    current_positions.get(1, []), current_positions.get(2, []))
+                if predicted_positions and len(predicted_positions) >= 2:
+                    assigned_positions = assign_players(predicted_positions[0], predicted_positions[1], 
+                                                        current_positions.get(1, []), current_positions.get(2, []))
+                else:
+                    assigned_positions = {1: predicted_positions[0] if predicted_positions else None,
+                                          2: predicted_positions[1] if len(predicted_positions) > 1 else None}
 
                 for player_id, position in assigned_positions.items():
                     if position != current_positions[player_id]:
@@ -193,7 +188,6 @@ def generate_s3_path(user_id, job_id, file_type):
     s3_path = f'processed_{file_type}/{user_hash}/{year}/{month}/{day}/{job_id}{extension}'
     return s3_path
 
-
 def process_video_async(video_path, output_path, job_id, user_id, frame_interval=2.5):
     start_time = int(time.time())
     temp_files = []
@@ -235,6 +229,20 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         temp_files.append(parquet_file)
         temp_files.append(processed_video_path)
         
+        # Create and save parquet file
+        data = {
+            'job_id': [job_id] * len(positions),
+            'user_id': [user_id] * len(positions),
+            'player_id': [pos['player_id'] for pos in positions],
+            'position': [pos['position'] for pos in positions],
+            'start_time': [pos['start_time'].total_seconds() for pos in positions],
+            'end_time': [pos['end_time'].total_seconds() for pos in positions],
+            'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
+            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
+        }
+        df = pa.Table.from_pydict(data)
+        pq.write_table(df, parquet_file)
+
         if os.path.exists(parquet_file):
             s3_client.upload_file(parquet_file, BUCKET_NAME, data_s3_path)
             logger.info(f"Uploaded {parquet_file} to S3: {data_s3_path}")
@@ -270,7 +278,6 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
             os.remove(os.path.join(output_path, file))
         logger.info(f"Cleaned up temporary files for job_id: {job_id}")
 
-
 def get_total_frames(video_path):
     try:
         cap = cv2.VideoCapture(video_path)
@@ -284,4 +291,5 @@ def get_total_frames(video_path):
     finally:
         if cap:
             cap.release()
+
 # TODO: Implement unit tests for Predictor, VideoProcessor, and process_video_async functions
