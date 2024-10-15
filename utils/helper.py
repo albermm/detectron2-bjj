@@ -177,7 +177,7 @@ class VideoProcessor:
 
                 updated_keypoints = self.tracker.update(frame, keypoints)
 
-                all_pred_keypoints = list(updated_keypoints.values())
+                all_pred_keypoints = updated_keypoints
                 predicted_position = self.tracker.find_position(all_pred_keypoints)
 
                 for player_id, keypoint in updated_keypoints.items():
