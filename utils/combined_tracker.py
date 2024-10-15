@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 from .shared_utils import logger, Config
-
+#con un cambio
 class PositionPredictor:
     _instance = None
 
@@ -175,6 +175,7 @@ class CombinedTracker:
             if not success:
                 logger.warning(f"Failed to initialize OpenCV tracker for player {player_id}")
                 return
+
 
             # Initialize Kalman filter
             kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
