@@ -502,6 +502,12 @@ def get_processed_data():
             logger.error(f"Error getting video URL: {str(e)}")
             video_url = None
         
+        # Ensure all new fields are properly formatted
+        for pos in positions:
+            pos['confidence'] = float(pos.get('confidence', 0.0))
+            pos['keypoint_quality'] = float(pos.get('keypoint_quality', 0.0))
+            pos['is_smoothed'] = bool(pos.get('is_smoothed', False))
+        
         return jsonify({
             'userId': user_id,
             'jobId': job_id,
@@ -563,11 +569,14 @@ def process_parquet_data(parquet_data):
         for pos in positions:
             formatted_positions.append({
                 'playerId': pos.get('player_id', ''),
-                'name': pos.get('position', ''),
+                'position': pos.get('position', ''),
                 'startTime': float(pos.get('start_time', 0)),
                 'endTime': float(pos.get('end_time', 0)),
                 'duration': float(pos.get('duration', 0)),
-                'videoTimestamp': float(pos.get('video_timestamp', 0))
+                'videoTimestamp': float(pos.get('video_timestamp', 0)),
+                'confidence': float(pos.get('confidence', 0.0)),
+                'keypoint_quality': float(pos.get('keypoint_quality', 0.0)),
+                'is_smoothed': bool(pos.get('is_smoothed', False))
             })
         
         return formatted_positions

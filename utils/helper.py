@@ -10,6 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict
+from collections import deque
 from detectron2.utils.visualizer import Visualizer as DetectronVisualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2 import model_zoo
@@ -20,7 +21,7 @@ from .shared_utils import (
     get_job_details, dynamodb_table
 )
 from .find_position import find_position
-from .assign_players import assign_players
+from .combined_tracker import CombinedTracker
 
 class Predictor:
     def __init__(self):
@@ -71,43 +72,66 @@ class Predictor:
             logger.error(f"Error in save_keypoints: {str(e)}")
             return None
 
-    def onImage(self, input_path, output_path):
-        try:
-            if isinstance(input_path, np.ndarray):
-                image = input_path
-            else:
-                image = cv2.imread(str(input_path))
-            if image is None:
-                raise ValueError(f"Failed to load image from {input_path}")
+def onImage(self, input_path, output_path):
+    try:
+        if isinstance(input_path, np.ndarray):
+            image = input_path
+        else:
+            image = cv2.imread(str(input_path))
+        if image is None:
+            raise ValueError(f"Failed to load image from {input_path}")
 
-            keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-            if keypoint_frame is None or keypoint_outputs is None:
-                logger.error("Failed to predict keypoints")
-                return None, None, None
-
-            if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
-                cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
-            else:
-                logger.warning(f"Invalid keypoint_frame, not saving the image.")
-
-            keypoints = self.save_keypoints(keypoint_outputs)
-            if keypoints is None:
-                logger.error("Failed to extract keypoints")
-                return None, None, None
-
-            with open(f"{output_path}_keypoints.json", 'w') as f:
-                json.dump(keypoints, f)
-
-            predicted_positions = find_position(keypoints)
-
-            return keypoint_frame, keypoints, predicted_positions
-        except Exception as e:
-            logger.error(f"Error in onImage: {str(e)}")
+        keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
+        if keypoint_frame is None or keypoint_outputs is None:
+            logger.error("Failed to predict keypoints")
             return None, None, None
 
+        if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
+            cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
+        else:
+            logger.warning(f"Invalid keypoint_frame, not saving the image.")
+
+        keypoints = self.save_keypoints(keypoint_outputs)
+        if keypoints is None:
+            logger.error("Failed to extract keypoints")
+            return None, None, None
+
+        with open(f"{output_path}_keypoints.json", 'w') as f:
+            json.dump(keypoints, f)
+
+        predicted_position = find_position(keypoints)
+
+        return keypoint_frame, keypoints, predicted_position
+    except Exception as e:
+        logger.error(f"Error in onImage: {str(e)}")
+        return None, None, None
+
+class PositionSmoother:
+    def __init__(self, window_size: int = 5):
+        self.window_size = window_size
+        self.position_history = deque(maxlen=window_size)
+        self.confidence_history = deque(maxlen=window_size)
+
+    def update(self, position: str, confidence: float) -> Tuple[str, float]:
+        self.position_history.append(position)
+        self.confidence_history.append(confidence)
+
+        if len(self.position_history) < self.window_size:
+            return position, confidence
+
+        # Calculate the most common position
+        smoothed_position = max(set(self.position_history), key=self.position_history.count)
+
+        # Calculate the weighted average confidence
+        total_weight = sum(self.confidence_history)
+        smoothed_confidence = sum(c * w for c, w in zip(self.confidence_history, self.confidence_history)) / total_weight
+
+        return smoothed_position, smoothed_confidence
+
 class VideoProcessor:
-    def __init__(self, frame_interval: float = 2.5, position_change_threshold: float = 0.1):
+    def __init__(self, frame_interval: float = 0.1, position_change_threshold: float = 0.1):
         self.predictor = Predictor()
+        self.tracker = CombinedTracker()
         self.frame_interval = frame_interval
         self.position_change_threshold = position_change_threshold
 
@@ -121,15 +145,15 @@ class VideoProcessor:
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            frame_skip = int(fps * self.frame_interval)
+            frame_skip = max(1, int(fps * self.frame_interval))
 
             processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
             positions: List[Dict] = []
-            current_positions: Dict[int, Optional[np.ndarray]] = {1: None, 2: None}
-            start_times: Dict[int, Optional[timedelta]] = {1: None, 2: None}
+            current_positions: Dict[int, str] = {}
+            start_times: Dict[int, timedelta] = {}
 
             for frame_number in range(0, frame_count, frame_skip):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -139,58 +163,99 @@ class VideoProcessor:
                     break
 
                 timestamp = timedelta(seconds=frame_number / fps)
-                
-                keypoint_frame, keypoints, predicted_positions = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
 
-                if keypoint_frame is not None:
-                    out.write(keypoint_frame)
+
+                keypoint_frame, keypoints, _ = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+                if keypoints is None or len(keypoints) == 0:
+                    logger.warning(f"No keypoints detected in frame {frame_number}")
+                    keypoints = {}
                 else:
-                    logger.warning(f"Skipping frame {frame_number} due to None keypoint_frame")
+                    keypoints = {i: kp for i, kp in enumerate(keypoints)}
 
-                if predicted_positions and len(predicted_positions) >= 2:
-                    predicted_positions = [np.atleast_1d(pos) for pos in predicted_positions]
-                    assigned_positions = assign_players(
-                        predicted_positions[0], predicted_positions[1],
-                        current_positions.get(1), current_positions.get(2),
-                        self.position_change_threshold
-                    )
-                else:
-                    logger.warning(f"Insufficient predicted positions for frame {frame_number}")
-                    assigned_positions = {1: None, 2: None}
+                updated_keypoints = self.tracker.update(frame, keypoints)
 
-                for player_id, position in assigned_positions.items():
-                    if position is not None:
-                        if current_positions[player_id] is None or not np.allclose(position, current_positions[player_id], atol=self.position_change_threshold):
-                            if current_positions[player_id] is not None:
-                                positions.append({
-                                    'position': current_positions[player_id].tolist(),
-                                    'start_time': start_times[player_id].total_seconds(),
-                                    'end_time': timestamp.total_seconds(),
-                                    'player_id': player_id
-                                })
-                            current_positions[player_id] = position
-                            start_times[player_id] = timestamp
+                all_pred_keypoints = list(updated_keypoints.values())
+                predicted_position = self.tracker.find_position(all_pred_keypoints)
+
+                for player_id, keypoint in updated_keypoints.items():
+                    keypoint_quality = self.calculate_keypoint_quality(np.array(keypoint))
+                    position, confidence = self.tracker.find_position([keypoint])
+                    
+                    if player_id not in self.position_smoothers:
+                        self.position_smoothers[player_id] = PositionSmoother()
+                    
+                    smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
+                    
+                    if player_id not in current_positions or smoothed_position != current_positions[player_id]:
+                        if player_id in current_positions:
+                            positions.append({
+                                'position': current_positions[player_id],
+                                'start_time': start_times[player_id],
+                                'end_time': timestamp,
+                                'player_id': player_id,
+                                'confidence': smoothed_confidence,
+                                'keypoint_quality': keypoint_quality,
+                                'is_smoothed': True
+                            })
+                        current_positions[player_id] = smoothed_position
+                        start_times[player_id] = timestamp
+
+                # Draw bounding boxes for visualization
+                for player_id, keypoint in updated_keypoints.items():
+                    box = self.tracker.keypoint_to_box(keypoint)
+                    if box:
+                        x, y, w, h = box
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                        cv2.putText(frame, f"Player {player_id}", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                out.write(frame)
 
                 progress_callback(frame_number)
 
-            cap.release()
-            out.release()
+        cap.release()
+        out.release()
 
-            # Add final positions
-            for player_id, position in current_positions.items():
-                if position is not None:
-                    positions.append({
-                        'position': position.tolist(),
-                        'start_time': start_times[player_id].total_seconds(),
-                        'end_time': (frame_count / fps),
-                        'player_id': player_id
-                    })
+        # Add final positions
+        for player_id, position in current_positions.items():
+            keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
+            smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
+            positions.append({
+                'position': smoothed_position,
+                'start_time': start_times[player_id],
+                'end_time': timedelta(seconds=frame_count / fps),
+                'player_id': player_id,
+                'confidence': smoothed_confidence,
+                'keypoint_quality': keypoint_quality,
+                'is_smoothed': True
+            })
 
-            logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
-            return positions, processed_video_path
-        except Exception as e:
-            logger.error(f"Error in process_video: {str(e)}", exc_info=True)
-            raise
+        logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
+        return positions, processed_video_path
+    except Exception as e:
+        logger.error(f"Error in process_video: {str(e)}", exc_info=True)
+        raise
+
+    @staticmethod
+    def calculate_keypoint_quality(keypoints: np.ndarray, confidence_threshold: float = 0.5) -> float:
+        if keypoints.size == 0:
+            return 0.0
+        
+        # Reshape keypoints to [num_keypoints, 3] where the last dimension is [x, y, confidence]
+        keypoints = keypoints.reshape(-1, 3)
+        
+        # Count keypoints above the confidence threshold
+        valid_keypoints = np.sum(keypoints[:, 2] > confidence_threshold)
+        
+        # Calculate the mean confidence of valid keypoints
+        mean_confidence = np.mean(keypoints[keypoints[:, 2] > confidence_threshold, 2])
+        
+        # Combine the ratio of valid keypoints and mean confidence
+        quality = (valid_keypoints / keypoints.shape[0]) * mean_confidence
+        
+        return quality
+
+    
+
 
 def generate_s3_path(user_id, job_id, file_type):
     user_hash = hashlib.md5(user_id.encode()).hexdigest()
@@ -217,7 +282,7 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         os.makedirs(output_path, exist_ok=True)
         logger.info(f"Created output directory: {output_path}")
 
-        video_processor = VideoProcessor(frame_interval)
+        video_processor = VideoProcessor(frame_interval=2.5)
         logger.info(f"Starting video processing for job_id: {job_id}")
 
         def progress_callback(frame_number):
