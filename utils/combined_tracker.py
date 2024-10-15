@@ -117,9 +117,13 @@ class CombinedTracker:
         updated_keypoints = []
         for player_id, keypoint in enumerate(keypoints):
             try:
+                if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
+                    logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
+                    continue
+
                 if player_id not in self.trackers:
                     self._initialize_tracker(player_id, frame, keypoint)
-                
+                    
                 if player_id in self.trackers and player_id in self.kalman_filters:
                     success, box = self.trackers[player_id].update(frame)
                     if success:
@@ -159,6 +163,16 @@ class CombinedTracker:
 
     def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
         try:
+            if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
+            logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
+            return
+
+            self.trackers[player_id] = cv2.TrackerCSRT_create()
+            box = self.keypoint_to_box(keypoint)
+            if box is None:
+                logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
+                return
+
             logger.info(f"Initializing tracker for player {player_id}")
             logger.info(f"Keypoint structure: {type(keypoint)}")
             logger.info(f"Keypoint content: {keypoint}")
@@ -213,8 +227,8 @@ class CombinedTracker:
         return keypoint_array.flatten().tolist()
 
     def keypoint_to_box(self, keypoint: List[float]) -> Optional[Tuple[int, int, int, int]]:
-        if not keypoint or len(keypoint) == 0:
-            logger.warning("Empty keypoint received in keypoint_to_box")
+        if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
+            logger.warning("Invalid keypoint received in keypoint_to_box")
             return None
         
         keypoint_array = np.array(keypoint).reshape(-1, 3)  # Reshape to [n, 3] where each row is [x, y, confidence]

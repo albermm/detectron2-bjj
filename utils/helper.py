@@ -168,12 +168,14 @@ class VideoProcessor:
 
                 timestamp = timedelta(seconds=frame_number / fps)
 
-                keypoint_frame, keypoints, _ = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
-                if keypoints is None or len(keypoints) == 0:
-                    logger.warning(f"No keypoints detected in frame {frame_number}")
-                    keypoints = {}
+                _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+
+                if keypoints and isinstance(keypoints[0], (list, np.ndarray)) and len(keypoints[0]) > 0:
+                    updated_keypoints = self.tracker.update(frame, keypoints)
+                    keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[0]))
                 else:
-                    keypoints = {i: kp for i, kp in enumerate(keypoints)}
+                    logger.warning(f"Invalid keypoints detected in frame {frame_number}")
+                    keypoint_quality = 0.0
 
                 updated_keypoints = self.tracker.update(frame, keypoints)
 
@@ -242,24 +244,18 @@ class VideoProcessor:
             if out is not None:
                 out.release()
 
-    @staticmethod
-    def calculate_keypoint_quality(keypoints: np.ndarray, confidence_threshold: float = 0.5) -> float:
+
+    def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
         if keypoints.size == 0:
             return 0.0
-        
-        # Reshape keypoints to [num_keypoints, 3] where the last dimension is [x, y, confidence]
+        if keypoints.ndim == 1:
+            keypoints = keypoints.reshape(1, -1)
+        if keypoints.shape[1] % 3 != 0:
+            logger.warning(f"Unexpected keypoint shape: {keypoints.shape}")
+            return 0.0
         keypoints = keypoints.reshape(-1, 3)
-        
-        # Count keypoints above the confidence threshold
-        valid_keypoints = np.sum(keypoints[:, 2] > confidence_threshold)
-        
-        # Calculate the mean confidence of valid keypoints
-        mean_confidence = np.mean(keypoints[keypoints[:, 2] > confidence_threshold, 2])
-        
-        # Combine the ratio of valid keypoints and mean confidence
-        quality = (valid_keypoints / keypoints.shape[0]) * mean_confidence
-        
-        return quality
+        valid_keypoints = keypoints[keypoints[:, 2] > 0]
+        return len(valid_keypoints) / len(keypoints)
 
     
 
