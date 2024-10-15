@@ -112,54 +112,65 @@ class CombinedTracker:
         self.last_positions: Dict[int, np.ndarray] = {}
         self.position_predictor = PositionPredictor()
 
-    def update(self, frame: np.ndarray, keypoints: Dict[int, List[float]]) -> Dict[int, np.ndarray]:
-        updated_keypoints = {}
-        for player_id in list(self.trackers.keys()):
-            if player_id in keypoints:
-                self.frame_counts[player_id] = 0
-            else:
-                self.frame_counts[player_id] += 1
-                if self.frame_counts[player_id] > self.max_frames_to_keep:
-                    self._remove_tracker(player_id)
-                    continue
-
-        for player_id, keypoint in keypoints.items():
-            if player_id in self.trackers:
-                success, box = self.trackers[player_id].update(frame)
-                if success:
-                    updated_keypoints[player_id] = self._kalman_update(player_id, self.adjust_keypoints(keypoint, box))
+    def update(self, frame: np.ndarray, keypoints: List[List[float]]) -> List[List[float]]:
+        updated_keypoints = []
+        for player_id, keypoint in enumerate(keypoints):
+            try:
+                if player_id not in self.trackers:
+                    self._initialize_tracker(player_id, frame, keypoint)
+                
+                if player_id in self.trackers and player_id in self.kalman_filters:
+                    success, box = self.trackers[player_id].update(frame)
+                    if success:
+                        center_x = box[0] + box[2] / 2
+                        center_y = box[1] + box[3] / 2
+                        
+                        # Kalman filter prediction and update
+                        self.kalman_filters[player_id].predict()
+                        self.kalman_filters[player_id].update(np.array([[center_x], [center_y]]))
+                        
+                        estimated_state = self.kalman_filters[player_id].x
+                        updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
+                    else:
+                        logger.warning(f"Tracking failed for player {player_id}, using original keypoint")
+                        updated_keypoint = keypoint
                 else:
-                    logger.warning(f"Tracker failed for player {player_id}. Resetting tracker.")
-                    self.reset_tracker(player_id, frame, keypoint)
-                    updated_keypoints[player_id] = self._kalman_update(player_id, keypoint)
-            else:
-                logger.info(f"Initializing new tracker for player {player_id}")
-                self._initialize_tracker(player_id, frame, keypoint)
-                updated_keypoints[player_id] = self._kalman_update(player_id, keypoint)
-            
-            self.frame_counts[player_id] = 0
-            self.last_positions[player_id] = updated_keypoints[player_id]
-
+                    logger.warning(f"Tracker or Kalman filter not initialized for player {player_id}")
+                    updated_keypoint = keypoint
+                
+                updated_keypoints.append(updated_keypoint)
+            except Exception as e:
+                logger.error(f"Error updating tracker for player {player_id}: {str(e)}")
+                updated_keypoints.append(keypoint)  # Use original keypoint in case of error
+        
         return updated_keypoints
 
     def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
-        self.trackers[player_id] = cv2.TrackerCSRT_create()
-        box = self.keypoint_to_box(keypoint)
-        self.trackers[player_id].init(frame, box)
-        
-        # Initialize Kalman filter
-        kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
-        kf.x = np.array([keypoint[0], keypoint[1], 0, 0]).reshape((4, 1))
-        kf.F = np.array([[1, 0, 1, 0],
-                         [0, 1, 0, 1],
-                         [0, 0, 1, 0],
-                         [0, 0, 0, 1]])
-        kf.H = np.array([[1, 0, 0, 0],
-                         [0, 1, 0, 0]])
-        kf.P *= 1000
-        kf.R *= 0.1
-        kf.Q *= 0.1
-        self.kalman_filters[player_id] = kf
+        try:
+            self.trackers[player_id] = cv2.TrackerCSRT_create()
+            box = self.keypoint_to_box(keypoint)
+            if box is None:
+                logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
+                return
+
+            success = self.trackers[player_id].init(frame, box)
+            if not success:
+                logger.warning(f"Failed to initialize OpenCV tracker for player {player_id}")
+                return
+
+            # Initialize Kalman filter
+            kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
+            first_x, first_y = self.get_first_valid_coordinates(keypoint)
+            kf.x = np.array([first_x, first_y, 0, 0]).reshape((4, 1))
+            kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
+            kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+            kf.P *= 1000
+            kf.R *= 0.1
+            kf.Q *= 0.1
+            self.kalman_filters[player_id] = kf
+            logger.info(f"Successfully initialized tracker and Kalman filter for player {player_id}")
+        except Exception as e:
+            logger.error(f"Error initializing tracker for player {player_id}: {str(e)}")
 
     def _kalman_update(self, player_id: int, measurement: np.ndarray) -> np.ndarray:
         kf = self.kalman_filters[player_id]
@@ -167,18 +178,33 @@ class CombinedTracker:
         kf.update(measurement[:2])
         return kf.x[:2].flatten()
 
-    def keypoint_to_box(self, keypoint: List[float]) -> Tuple[int, int, int, int]:
+    def update_keypoint_with_estimate(self, keypoint: List[float], estimated_state: np.ndarray) -> List[float]:
+        updated_keypoint = keypoint.copy()
+        keypoint_array = np.array(keypoint).reshape(-1, 3)
+        valid_indices = keypoint_array[:, 2] > 0
+        
+        if np.any(valid_indices):
+            # Update only valid keypoints
+            keypoint_array[valid_indices, 0] = estimated_state[0, 0]
+            keypoint_array[valid_indices, 1] = estimated_state[1, 0]
+        
+        return keypoint_array.flatten().tolist()
+
+    def keypoint_to_box(self, keypoint: List[float]) -> Optional[Tuple[int, int, int, int]]:
         if not keypoint or len(keypoint) == 0:
             logger.warning("Empty keypoint received in keypoint_to_box")
             return None
         
-        # Detectron2 keypoints are in the format [x1, y1, c1, x2, y2, c2, ...]
-        # We need to extract only x and y coordinates
-        keypoint_array = np.array(keypoint).reshape(-1, 3)[:, :2]
+        keypoint_array = np.array(keypoint).reshape(-1, 3)  # Reshape to [n, 3] where each row is [x, y, confidence]
+        valid_keypoints = keypoint_array[keypoint_array[:, 2] > 0]  # Filter keypoints with confidence > 0
         
-        x_min, y_min = np.min(keypoint_array, axis=0)
-        x_max, y_max = np.max(keypoint_array, axis=0)
-    
+        if len(valid_keypoints) == 0:
+            logger.warning("No valid keypoints found in keypoint_to_box")
+            return None
+        
+        x_min, y_min = np.min(valid_keypoints[:, :2], axis=0)
+        x_max, y_max = np.max(valid_keypoints[:, :2], axis=0)
+        
         return [int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min)]
 
     def adjust_keypoints(self, keypoint: List[float], box: Tuple[int, int, int, int]) -> np.ndarray:
