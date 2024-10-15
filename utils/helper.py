@@ -72,39 +72,39 @@ class Predictor:
             logger.error(f"Error in save_keypoints: {str(e)}")
             return None
 
-def onImage(self, input_path, output_path):
-    try:
-        if isinstance(input_path, np.ndarray):
-            image = input_path
-        else:
-            image = cv2.imread(str(input_path))
-        if image is None:
-            raise ValueError(f"Failed to load image from {input_path}")
+    def onImage(self, input_path, output_path):
+        try:
+            if isinstance(input_path, np.ndarray):
+                image = input_path
+            else:
+                image = cv2.imread(str(input_path))
+            if image is None:
+                raise ValueError(f"Failed to load image from {input_path}")
 
-        keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
-        if keypoint_frame is None or keypoint_outputs is None:
-            logger.error("Failed to predict keypoints")
+            keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
+            if keypoint_frame is None or keypoint_outputs is None:
+                logger.error("Failed to predict keypoints")
+                return None, None, None
+
+            if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
+                cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
+            else:
+                logger.warning(f"Invalid keypoint_frame, not saving the image.")
+
+            keypoints = self.save_keypoints(keypoint_outputs)
+            if keypoints is None:
+                logger.error("Failed to extract keypoints")
+                return None, None, None
+
+            with open(f"{output_path}_keypoints.json", 'w') as f:
+                json.dump(keypoints, f)
+
+            predicted_position = find_position(keypoints)
+
+            return keypoint_frame, keypoints, predicted_position
+        except Exception as e:
+            logger.error(f"Error in onImage: {str(e)}")
             return None, None, None
-
-        if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
-            cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
-        else:
-            logger.warning(f"Invalid keypoint_frame, not saving the image.")
-
-        keypoints = self.save_keypoints(keypoint_outputs)
-        if keypoints is None:
-            logger.error("Failed to extract keypoints")
-            return None, None, None
-
-        with open(f"{output_path}_keypoints.json", 'w') as f:
-            json.dump(keypoints, f)
-
-        predicted_position = find_position(keypoints)
-
-        return keypoint_frame, keypoints, predicted_position
-    except Exception as e:
-        logger.error(f"Error in onImage: {str(e)}")
-        return None, None, None
 
 class PositionSmoother:
     def __init__(self, window_size: int = 5):
