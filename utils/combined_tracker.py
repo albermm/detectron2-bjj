@@ -171,8 +171,14 @@ class CombinedTracker:
         if not keypoint or len(keypoint) == 0:
             logger.warning("Empty keypoint received in keypoint_to_box")
             return None
-        x_min, y_min = np.min(keypoint, axis=0)
-        x_max, y_max = np.max(keypoint, axis=0)
+        
+        # Detectron2 keypoints are in the format [x1, y1, c1, x2, y2, c2, ...]
+        # We need to extract only x and y coordinates
+        keypoint_array = np.array(keypoint).reshape(-1, 3)[:, :2]
+        
+        x_min, y_min = np.min(keypoint_array, axis=0)
+        x_max, y_max = np.max(keypoint_array, axis=0)
+    
         return [int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min)]
 
     def adjust_keypoints(self, keypoint: List[float], box: Tuple[int, int, int, int]) -> np.ndarray:
