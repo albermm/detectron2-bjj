@@ -106,9 +106,10 @@ class Predictor:
             return None, None, None
 
 class VideoProcessor:
-    def __init__(self, frame_interval: float = 2.5):
+    def __init__(self, frame_interval: float = 2.5, position_change_threshold: float = 0.1):
         self.predictor = Predictor()
         self.frame_interval = frame_interval
+        self.position_change_threshold = position_change_threshold
 
     def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
         try:
@@ -134,6 +135,7 @@ class VideoProcessor:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
                 ret, frame = cap.read()
                 if not ret:
+                    logger.warning(f"Failed to read frame {frame_number}")
                     break
 
                 timestamp = timedelta(seconds=frame_number / fps)
@@ -146,25 +148,28 @@ class VideoProcessor:
                     logger.warning(f"Skipping frame {frame_number} due to None keypoint_frame")
 
                 if predicted_positions and len(predicted_positions) >= 2:
-                    # Convert predicted_positions to numpy arrays
-                    predicted_positions = [np.array(pos) for pos in predicted_positions]
-                    assigned_positions = assign_players(predicted_positions[0], predicted_positions[1], 
-                                                        current_positions.get(1), current_positions.get(2))
+                    predicted_positions = [np.atleast_1d(pos) for pos in predicted_positions]
+                    assigned_positions = assign_players(
+                        predicted_positions[0], predicted_positions[1],
+                        current_positions.get(1), current_positions.get(2),
+                        self.position_change_threshold
+                    )
                 else:
-                    assigned_positions = {1: predicted_positions[0] if predicted_positions else None,
-                                          2: predicted_positions[1] if len(predicted_positions) > 1 else None}
+                    logger.warning(f"Insufficient predicted positions for frame {frame_number}")
+                    assigned_positions = {1: None, 2: None}
 
                 for player_id, position in assigned_positions.items():
-                    if position is not None and (current_positions[player_id] is None or not np.array_equal(position, current_positions[player_id])):
-                        if current_positions[player_id] is not None:
-                            positions.append({
-                                'position': current_positions[player_id].tolist(),  # Convert numpy array to list
-                                'start_time': start_times[player_id],
-                                'end_time': timestamp,
-                                'player_id': player_id
-                            })
-                        current_positions[player_id] = position
-                        start_times[player_id] = timestamp
+                    if position is not None:
+                        if current_positions[player_id] is None or not np.allclose(position, current_positions[player_id], atol=self.position_change_threshold):
+                            if current_positions[player_id] is not None:
+                                positions.append({
+                                    'position': current_positions[player_id].tolist(),
+                                    'start_time': start_times[player_id].total_seconds(),
+                                    'end_time': timestamp.total_seconds(),
+                                    'player_id': player_id
+                                })
+                            current_positions[player_id] = position
+                            start_times[player_id] = timestamp
 
                 progress_callback(frame_number)
 
@@ -175,15 +180,16 @@ class VideoProcessor:
             for player_id, position in current_positions.items():
                 if position is not None:
                     positions.append({
-                        'position': position.tolist(),  # Convert numpy array to list
-                        'start_time': start_times[player_id],
-                        'end_time': timedelta(seconds=frame_count / fps),
+                        'position': position.tolist(),
+                        'start_time': start_times[player_id].total_seconds(),
+                        'end_time': (frame_count / fps),
                         'player_id': player_id
                     })
 
+            logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
             return positions, processed_video_path
         except Exception as e:
-            logger.error(f"Error in process_video: {str(e)}")
+            logger.error(f"Error in process_video: {str(e)}", exc_info=True)
             raise
 
 def generate_s3_path(user_id, job_id, file_type):
