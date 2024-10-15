@@ -125,11 +125,8 @@ class CombinedTracker:
                     if success:
                         center_x = box[0] + box[2] / 2
                         center_y = box[1] + box[3] / 2
-                        
-                        # Kalman filter prediction and update
                         self.kalman_filters[player_id].predict()
                         self.kalman_filters[player_id].update(np.array([[center_x], [center_y]]))
-                        
                         estimated_state = self.kalman_filters[player_id].x
                         updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
                     else:
