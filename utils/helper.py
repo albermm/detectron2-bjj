@@ -136,6 +136,11 @@ class VideoProcessor:
         self.position_change_threshold = position_change_threshold
 
     def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
+        cap = None
+        out = None
+        positions: List[Dict] = []
+        processed_video_path = ""
+
         try:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
@@ -151,7 +156,6 @@ class VideoProcessor:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
-            positions: List[Dict] = []
             current_positions: Dict[int, str] = {}
             start_times: Dict[int, timedelta] = {}
 
@@ -163,7 +167,6 @@ class VideoProcessor:
                     break
 
                 timestamp = timedelta(seconds=frame_number / fps)
-
 
                 keypoint_frame, keypoints, _ = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
                 if keypoints is None or len(keypoints) == 0:
@@ -212,28 +215,32 @@ class VideoProcessor:
 
                 progress_callback(frame_number)
 
-        cap.release()
-        out.release()
+            # Add final positions
+            for player_id, position in current_positions.items():
+                keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
+                smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
+                positions.append({
+                    'position': smoothed_position,
+                    'start_time': start_times[player_id],
+                    'end_time': timedelta(seconds=frame_count / fps),
+                    'player_id': player_id,
+                    'confidence': smoothed_confidence,
+                    'keypoint_quality': keypoint_quality,
+                    'is_smoothed': True
+                })
 
-        # Add final positions
-        for player_id, position in current_positions.items():
-            keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
-            smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
-            positions.append({
-                'position': smoothed_position,
-                'start_time': start_times[player_id],
-                'end_time': timedelta(seconds=frame_count / fps),
-                'player_id': player_id,
-                'confidence': smoothed_confidence,
-                'keypoint_quality': keypoint_quality,
-                'is_smoothed': True
-            })
+            logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
+            return positions, processed_video_path
 
-        logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
-        return positions, processed_video_path
-    except Exception as e:
-        logger.error(f"Error in process_video: {str(e)}", exc_info=True)
-        raise
+        except Exception as e:
+            logger.error(f"Error in process_video: {str(e)}", exc_info=True)
+            raise
+
+        finally:
+            if cap is not None:
+                cap.release()
+            if out is not None:
+                out.release()
 
     @staticmethod
     def calculate_keypoint_quality(keypoints: np.ndarray, confidence_threshold: float = 0.5) -> float:
