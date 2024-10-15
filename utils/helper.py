@@ -180,7 +180,7 @@ class VideoProcessor:
                 all_pred_keypoints = updated_keypoints
                 predicted_position = self.tracker.find_position(all_pred_keypoints)
 
-                for player_id, keypoint in updated_keypoints.items():
+                for player_id, keypoint in enumerate(updated_keypoints):
                     keypoint_quality = self.calculate_keypoint_quality(np.array(keypoint))
                     position, confidence = self.tracker.find_position([keypoint])
                     
