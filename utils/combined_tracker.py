@@ -103,6 +103,7 @@ class PositionPredictor:
         avg_confidence = sum(confidences) / len(confidences)
         return avg_position, avg_confidence
 
+
 class CombinedTracker:
     def __init__(self, max_frames_to_keep=30):
         self.trackers: Dict[int, cv2.Tracker] = {}
@@ -145,10 +146,30 @@ class CombinedTracker:
         
         return updated_keypoints
 
+    def get_first_valid_coordinates(self, keypoint: List[float]) -> Tuple[float, float]:
+        logger.info(f"Getting first valid coordinates from keypoint: {keypoint}")
+        keypoint_array = np.array(keypoint).reshape(-1, 3)  # Reshape to [n, 3] where each row is [x, y, confidence]
+        logger.info(f"Reshaped keypoint array: {keypoint_array}")
+        valid_keypoints = keypoint_array[keypoint_array[:, 2] > 0]  # Filter keypoints with confidence > 0
+        logger.info(f"Valid keypoints: {valid_keypoints}")
+        if len(valid_keypoints) > 0:
+            first_x, first_y = valid_keypoints[0, 0], valid_keypoints[0, 1]
+            logger.info(f"Returning first valid coordinates: ({first_x}, {first_y})")
+            return first_x, first_y
+        else:
+            logger.warning("No valid keypoints found. Using (0, 0) as default.")
+            return 0.0, 0.0
+
     def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
         try:
+            logger.info(f"Initializing tracker for player {player_id}")
+            logger.info(f"Keypoint structure: {type(keypoint)}")
+            logger.info(f"Keypoint content: {keypoint}")
+
             self.trackers[player_id] = cv2.TrackerCSRT_create()
             box = self.keypoint_to_box(keypoint)
+            logger.info(f"Bounding box for player {player_id}: {box}")
+
             if box is None:
                 logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
                 return
@@ -161,6 +182,8 @@ class CombinedTracker:
             # Initialize Kalman filter
             kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
             first_x, first_y = self.get_first_valid_coordinates(keypoint)
+            logger.info(f"First valid coordinates for player {player_id}: ({first_x}, {first_y})")
+
             kf.x = np.array([first_x, first_y, 0, 0]).reshape((4, 1))
             kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
             kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
@@ -168,9 +191,10 @@ class CombinedTracker:
             kf.R *= 0.1
             kf.Q *= 0.1
             self.kalman_filters[player_id] = kf
+
             logger.info(f"Successfully initialized tracker and Kalman filter for player {player_id}")
         except Exception as e:
-            logger.error(f"Error initializing tracker for player {player_id}: {str(e)}")
+            logger.error(f"Error initializing tracker for player {player_id}: {str(e)}", exc_info=True)
 
     def _kalman_update(self, player_id: int, measurement: np.ndarray) -> np.ndarray:
         kf = self.kalman_filters[player_id]
