@@ -159,17 +159,20 @@ class CombinedTracker:
             
             success = False
             for tracker_name, tracker_creator in trackers:
-                self.trackers[player_id] = tracker_creator()
-                success = self.trackers[player_id].init(frame, box)
-                if success:
-                    logger.info(f"Successfully initialized {tracker_name} tracker for player {player_id}")
-                    break
-                else:
-                    logger.warning(f"Failed to initialize {tracker_name} tracker for player {player_id}")
-            
+                try:
+                    self.trackers[player_id] = tracker_creator()
+                    success = self.trackers[player_id].init(frame, box)
+                    if success:
+                        logger.info(f"Successfully initialized {tracker_name} tracker for player {player_id}")
+                        break
+                    else:
+                        logger.warning(f"Failed to initialize {tracker_name} tracker for player {player_id}")
+                except Exception as e:
+                    logger.error(f"Error initializing {tracker_name} tracker for player {player_id}: {str(e)}")
+
             if not success:
-                logger.warning(f"Failed to initialize any tracker for player {player_id}")
-                return False
+                logger.warning(f"Failed to initialize any tracker for player {player_id}. Using fallback method.")
+                return self._initialize_fallback_tracker(player_id, frame, keypoint)
 
             # Initialize Kalman filter
             kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
@@ -194,6 +197,24 @@ class CombinedTracker:
             logger.error(f"Error initializing tracker for player {player_id}: {str(e)}")
             return False
 
+    def _initialize_fallback_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]) -> bool:
+        # Simple centroid-based fallback tracker
+        centroid = self.get_centroid(keypoint)
+        if centroid is not None:
+            self.last_positions[player_id] = np.array(centroid)
+            logger.info(f"Initialized fallback tracker for player {player_id}")
+            return True
+        else:
+            logger.warning(f"Failed to initialize fallback tracker for player {player_id}")
+            return False
+
+    def get_centroid(self, keypoint: List[float]) -> Optional[Tuple[float, float]]:
+        keypoint_array = np.array(keypoint).reshape(-1, 3)
+        valid_keypoints = keypoint_array[keypoint_array[:, 2] > 0, :2]
+        if len(valid_keypoints) > 0:
+            return np.mean(valid_keypoints, axis=0)
+        return None
+
     def update(self, frame: np.ndarray, keypoints: List[List[float]]) -> List[List[float]]:
         updated_keypoints = []
         for player_id, keypoint in enumerate(keypoints):
@@ -204,7 +225,11 @@ class CombinedTracker:
                         updated_keypoints.append(keypoint)
                         continue
 
-                success, box = self.trackers[player_id].update(frame)
+                if player_id in self.trackers:
+                    success, box = self.trackers[player_id].update(frame)
+                else:
+                    success = False
+
                 if success:
                     center_x = box[0] + box[2] / 2
                     center_y = box[1] + box[3] / 2
@@ -216,9 +241,8 @@ class CombinedTracker:
                     estimated_state = self.kalman_filters[player_id].x
                     updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
                 else:
-                    logger.warning(f"Tracking failed for player {player_id}, reinitializing tracker")
-                    success = self._initialize_tracker(player_id, frame, keypoint)
-                    updated_keypoint = keypoint if not success else self.update_keypoint_with_estimate(keypoint, self.kalman_filters[player_id].x)
+                    logger.warning(f"Tracking failed for player {player_id}, using fallback method")
+                    updated_keypoint = self.update_fallback_tracker(player_id, keypoint)
 
                 updated_keypoints.append(updated_keypoint)
                 self.last_reinitialization[player_id] += 1
@@ -228,6 +252,13 @@ class CombinedTracker:
                 updated_keypoints.append(keypoint)
 
         return updated_keypoints
+
+    def update_fallback_tracker(self, player_id: int, keypoint: List[float]) -> List[float]:
+        centroid = self.get_centroid(keypoint)
+        if centroid is not None:
+            self.last_positions[player_id] = np.array(centroid)
+            return self.update_keypoint_with_estimate(keypoint, np.array(centroid))
+        return keypoint
 
     def should_reinitialize(self, player_id: int, reinit_interval: int = 30) -> bool:
         return self.last_reinitialization.get(player_id, 0) >= reinit_interval
@@ -266,6 +297,7 @@ class CombinedTracker:
         
         return keypoint_array.flatten().tolist()
 
+
     def keypoint_to_box(self, keypoint: List[float]) -> Optional[Tuple[int, int, int, int]]:
         if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
             logger.warning("Invalid keypoint received in keypoint_to_box")
@@ -281,7 +313,11 @@ class CombinedTracker:
         x_min, y_min = np.min(valid_keypoints[:, :2], axis=0)
         x_max, y_max = np.max(valid_keypoints[:, :2], axis=0)
         
-        return [int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min)]
+        # Ensure the box has a minimum size
+        width = max(x_max - x_min, 10)
+        height = max(y_max - y_min, 10)
+        
+        return [int(x_min), int(y_min), int(width), int(height)]
 
     def adjust_keypoints(self, keypoint: List[float], box: Tuple[int, int, int, int]) -> np.ndarray:
         x, y, w, h = box
