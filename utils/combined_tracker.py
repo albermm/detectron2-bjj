@@ -7,7 +7,28 @@ import logging
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 from .shared_utils import logger, Config
-#con un cambio
+from typing import Dict, Callable
+from filterpy.kalman import KalmanFilter
+
+
+
+# Define tracker types based on OpenCV version
+if int(cv2.__version__.split('.')[0]) >= 3:
+    tracker_types: Dict[str, Callable] = {
+        'CSRT': cv2.TrackerCSRT_create,
+        'KCF': cv2.TrackerKCF_create,
+        'MOSSE': cv2.TrackerMOSSE_create,
+        'MIL': cv2.TrackerMIL_create
+    }
+else:
+    tracker_types: Dict[str, Callable] = {
+        'CSRT': cv2.TrackerCSRT.create,
+        'KCF': cv2.TrackerKCF.create,
+        'MOSSE': cv2.TrackerMOSSE.create,
+        'MIL': cv2.TrackerMIL.create
+    }
+
+
 class PositionPredictor:
     _instance = None
 
@@ -113,39 +134,86 @@ class CombinedTracker:
         self.last_positions: Dict[int, np.ndarray] = {}
         self.position_predictor = PositionPredictor()
 
+    def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
+        try:
+            box = self.keypoint_to_box(keypoint)
+            if box is None:
+                logger.warning(f"Failed to create bounding box for player {player_id}")
+                return False
+
+            for tracker_name in ['CSRT', 'KCF', 'MOSSE', 'MIL']:
+                try:
+                    self.trackers[player_id] = tracker_types[tracker_name]()
+                    success = self.trackers[player_id].init(frame, box)
+                    if success:
+                        logger.info(f"Successfully initialized {tracker_name} tracker for player {player_id}")
+                        break
+                    else:
+                        logger.warning(f"Failed to initialize {tracker_name} tracker for player {player_id}")
+                except Exception as e:
+                    logger.error(f"Error initializing {tracker_name} tracker for player {player_id}: {str(e)}")
+
+            if not success:
+                logger.warning(f"Failed to initialize any tracker for player {player_id}")
+                return False
+
+            # Initialize Kalman filter
+            kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
+            first_x, first_y = self.get_first_valid_coordinates(keypoint)
+            kf.x = np.array([first_x, first_y, 0, 0]).reshape((4, 1))
+            kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
+            kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+            kf.P *= 1000
+            kf.R *= 0.1
+            kf.Q *= 0.1
+            self.kalman_filters[player_id] = kf
+
+            self.last_reinitialization[player_id] = 0
+            logger.info(f"Successfully initialized tracker and Kalman filter for player {player_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error initializing tracker for player {player_id}: {str(e)}")
+            return False
+
     def update(self, frame: np.ndarray, keypoints: List[List[float]]) -> List[List[float]]:
         updated_keypoints = []
         for player_id, keypoint in enumerate(keypoints):
             try:
-                if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
-                    logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
-                    continue
+                if player_id not in self.trackers or self.should_reinitialize(player_id):
+                    success = self._initialize_tracker(player_id, frame, keypoint)
+                    if not success:
+                        updated_keypoints.append(keypoint)
+                        continue
 
-                if player_id not in self.trackers:
-                    self._initialize_tracker(player_id, frame, keypoint)
+                success, box = self.trackers[player_id].update(frame)
+                if success:
+                    center_x = box[0] + box[2] / 2
+                    center_y = box[1] + box[3] / 2
                     
-                if player_id in self.trackers and player_id in self.kalman_filters:
-                    success, box = self.trackers[player_id].update(frame)
-                    if success:
-                        center_x = box[0] + box[2] / 2
-                        center_y = box[1] + box[3] / 2
-                        self.kalman_filters[player_id].predict()
-                        self.kalman_filters[player_id].update(np.array([[center_x], [center_y]]))
-                        estimated_state = self.kalman_filters[player_id].x
-                        updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
-                    else:
-                        logger.warning(f"Tracking failed for player {player_id}, using original keypoint")
-                        updated_keypoint = keypoint
+                    # Kalman filter prediction and update
+                    self.kalman_filters[player_id].predict()
+                    self.kalman_filters[player_id].update(np.array([[center_x], [center_y]]))
+                    
+                    estimated_state = self.kalman_filters[player_id].x
+                    updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
                 else:
-                    logger.warning(f"Tracker or Kalman filter not initialized for player {player_id}")
-                    updated_keypoint = keypoint
-                
+                    logger.warning(f"Tracking failed for player {player_id}, reinitializing tracker")
+                    success = self._initialize_tracker(player_id, frame, keypoint)
+                    updated_keypoint = keypoint if not success else self.update_keypoint_with_estimate(keypoint, self.kalman_filters[player_id].x)
+
                 updated_keypoints.append(updated_keypoint)
+                self.last_reinitialization[player_id] += 1
+
             except Exception as e:
                 logger.error(f"Error updating tracker for player {player_id}: {str(e)}")
-                updated_keypoints.append(keypoint)  # Use original keypoint in case of error
-        
+                updated_keypoints.append(keypoint)
+
         return updated_keypoints
+
+    def should_reinitialize(self, player_id: int, reinit_interval: int = 30) -> bool:
+        return self.last_reinitialization.get(player_id, 0) >= reinit_interval
+
 
     def get_first_valid_coordinates(self, keypoint: List[float]) -> Tuple[float, float]:
         logger.info(f"Getting first valid coordinates from keypoint: {keypoint}")
@@ -161,52 +229,6 @@ class CombinedTracker:
             logger.warning("No valid keypoints found. Using (0, 0) as default.")
             return 0.0, 0.0
 
-    def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
-        try:
-            if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
-                logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
-                return
-
-            self.trackers[player_id] = cv2.TrackerCSRT_create()
-            box = self.keypoint_to_box(keypoint)
-            if box is None:
-                logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
-                return
-
-            logger.info(f"Initializing tracker for player {player_id}")
-            logger.info(f"Keypoint structure: {type(keypoint)}")
-            logger.info(f"Keypoint content: {keypoint}")
-
-            self.trackers[player_id] = cv2.TrackerCSRT_create()
-            box = self.keypoint_to_box(keypoint)
-            logger.info(f"Bounding box for player {player_id}: {box}")
-
-            if box is None:
-                logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
-                return
-
-            success = self.trackers[player_id].init(frame, box)
-            if not success:
-                logger.warning(f"Failed to initialize OpenCV tracker for player {player_id}")
-                return
-
-
-            # Initialize Kalman filter
-            kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
-            first_x, first_y = self.get_first_valid_coordinates(keypoint)
-            logger.info(f"First valid coordinates for player {player_id}: ({first_x}, {first_y})")
-
-            kf.x = np.array([first_x, first_y, 0, 0]).reshape((4, 1))
-            kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
-            kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-            kf.P *= 1000
-            kf.R *= 0.1
-            kf.Q *= 0.1
-            self.kalman_filters[player_id] = kf
-
-            logger.info(f"Successfully initialized tracker and Kalman filter for player {player_id}")
-        except Exception as e:
-            logger.error(f"Error initializing tracker for player {player_id}: {str(e)}", exc_info=True)
 
     def _kalman_update(self, player_id: int, measurement: np.ndarray) -> np.ndarray:
         kf = self.kalman_filters[player_id]

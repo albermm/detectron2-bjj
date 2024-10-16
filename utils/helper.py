@@ -134,14 +134,20 @@ class VideoProcessor:
         self.tracker = CombinedTracker()
         self.frame_interval = frame_interval
         self.position_change_threshold = position_change_threshold
+        self.position_smoothers = {}
 
     def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
         cap = None
         out = None
         positions: List[Dict] = []
         processed_video_path = ""
+        current_positions = {}
+        start_times = {}
 
         try:
+            if not hasattr(self, 'predictor') or not hasattr(self, 'tracker'):
+                raise AttributeError("Predictor or tracker not initialized")
+
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 raise ValueError(f"Failed to open video file: {video_path}")
@@ -156,9 +162,6 @@ class VideoProcessor:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
 
-            current_positions: Dict[int, str] = {}
-            start_times: Dict[int, timedelta] = {}
-
             for frame_number in range(0, frame_count, frame_skip):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
                 ret, frame = cap.read()
@@ -168,16 +171,14 @@ class VideoProcessor:
 
                 timestamp = timedelta(seconds=frame_number / fps)
 
-                _, keypoints, predicted_position = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+                _, keypoints, _ = self.predictor.onImage(frame, f"{output_path}/frame_{frame_number}")
+                logger.debug(f"Frame {frame_number}: Detected {len(keypoints)} keypoints")
 
                 if keypoints and isinstance(keypoints[0], (list, np.ndarray)) and len(keypoints[0]) > 0:
                     updated_keypoints = self.tracker.update(frame, keypoints)
-                    keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[0]))
                 else:
                     logger.warning(f"Invalid keypoints detected in frame {frame_number}")
-                    keypoint_quality = 0.0
-
-                updated_keypoints = self.tracker.update(frame, keypoints)
+                    continue
 
                 all_pred_keypoints = updated_keypoints
                 predicted_position = self.tracker.find_position(all_pred_keypoints)
@@ -206,7 +207,7 @@ class VideoProcessor:
                         start_times[player_id] = timestamp
 
                 # Draw bounding boxes for visualization
-                for player_id, keypoint in updated_keypoints.items():
+                for player_id, keypoint in enumerate(updated_keypoints):
                     box = self.tracker.keypoint_to_box(keypoint)
                     if box:
                         x, y, w, h = box
@@ -215,7 +216,12 @@ class VideoProcessor:
 
                 out.write(frame)
 
-                progress_callback(frame_number)
+                progress_callback(frame_number / frame_count * 100)  # Report progress as percentage
+
+                # Periodically reinitialize tracker (e.g., every 5 seconds)
+                if frame_number % (5 * fps) == 0:
+                    for player_id, keypoint in enumerate(updated_keypoints):
+                        self.tracker.reset_tracker(player_id, frame, keypoint)
 
             # Add final positions
             for player_id, position in current_positions.items():
@@ -234,6 +240,9 @@ class VideoProcessor:
             logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
             return positions, processed_video_path
 
+        except cv2.error as e:
+            logger.error(f"OpenCV error in process_video: {str(e)}", exc_info=True)
+            raise
         except Exception as e:
             logger.error(f"Error in process_video: {str(e)}", exc_info=True)
             raise
@@ -243,7 +252,6 @@ class VideoProcessor:
                 cap.release()
             if out is not None:
                 out.release()
-
 
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
         if keypoints.size == 0:
@@ -256,8 +264,6 @@ class VideoProcessor:
         keypoints = keypoints.reshape(-1, 3)
         valid_keypoints = keypoints[keypoints[:, 2] > 0]
         return len(valid_keypoints) / len(keypoints)
-
-    
 
 
 def generate_s3_path(user_id, job_id, file_type):
