@@ -164,8 +164,8 @@ class CombinedTracker:
     def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
         try:
             if not isinstance(keypoint, (list, np.ndarray)) or len(keypoint) == 0:
-            logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
-            return
+                logger.warning(f"Invalid keypoint data for player {player_id}: {keypoint}")
+                return
 
             self.trackers[player_id] = cv2.TrackerCSRT_create()
             box = self.keypoint_to_box(keypoint)
