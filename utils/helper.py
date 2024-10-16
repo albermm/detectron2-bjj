@@ -278,7 +278,6 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         if total_frames == 0:
             raise ValueError(f"Invalid video file or no frames detected: {video_path}")
 
-
         update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path, 
                           processing_start_time=start_time,
                           total_frames=total_frames,
@@ -312,7 +311,7 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         temp_files.append(processed_video_path)
         
         # Create and save parquet file
-         data = {
+        data = {
             'job_id': [job_id] * len(positions),
             'user_id': [user_id] * len(positions),
             'player_id': [pos['player_id'] for pos in positions],
