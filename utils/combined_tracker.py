@@ -13,20 +13,29 @@ from filterpy.kalman import KalmanFilter
 
 
 # Define tracker types based on OpenCV version
+tracker_types: Dict[str, Callable] = {}
+
 if int(cv2.__version__.split('.')[0]) >= 3:
-    tracker_types: Dict[str, Callable] = {
-        'CSRT': cv2.TrackerCSRT_create,
-        'KCF': cv2.TrackerKCF_create,
-        'MOSSE': cv2.TrackerMOSSE_create,
-        'MIL': cv2.TrackerMIL_create
-    }
+    if hasattr(cv2, 'TrackerCSRT_create'):
+        tracker_types['CSRT'] = cv2.TrackerCSRT_create
+    if hasattr(cv2, 'TrackerKCF_create'):
+        tracker_types['KCF'] = cv2.TrackerKCF_create
+    if hasattr(cv2, 'TrackerMOSSE_create'):
+        tracker_types['MOSSE'] = cv2.TrackerMOSSE_create
+    if hasattr(cv2, 'TrackerMIL_create'):
+        tracker_types['MIL'] = cv2.TrackerMIL_create
 else:
-    tracker_types: Dict[str, Callable] = {
-        'CSRT': cv2.TrackerCSRT.create,
-        'KCF': cv2.TrackerKCF.create,
-        'MOSSE': cv2.TrackerMOSSE.create,
-        'MIL': cv2.TrackerMIL.create
-    }
+    if hasattr(cv2, 'TrackerCSRT'):
+        tracker_types['CSRT'] = cv2.TrackerCSRT.create
+    if hasattr(cv2, 'TrackerKCF'):
+        tracker_types['KCF'] = cv2.TrackerKCF.create
+    if hasattr(cv2, 'TrackerMOSSE'):
+        tracker_types['MOSSE'] = cv2.TrackerMOSSE.create
+    if hasattr(cv2, 'TrackerMIL'):
+        tracker_types['MIL'] = cv2.TrackerMIL.create
+
+if not tracker_types:
+    raise ImportError("No suitable OpenCV trackers found. Please check your OpenCV installation.")
 
 
 class PositionPredictor:
@@ -141,7 +150,7 @@ class CombinedTracker:
                 logger.warning(f"Failed to create bounding box for player {player_id}")
                 return False
 
-            for tracker_name in ['CSRT', 'KCF', 'MOSSE', 'MIL']:
+            for tracker_name in tracker_types.keys():
                 try:
                     self.trackers[player_id] = tracker_types[tracker_name]()
                     success = self.trackers[player_id].init(frame, box)
