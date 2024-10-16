@@ -142,48 +142,55 @@ class CombinedTracker:
         self.max_frames_to_keep = max_frames_to_keep
         self.last_positions: Dict[int, np.ndarray] = {}
         self.position_predictor = PositionPredictor()
-
-    def _initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
+    def initialize_tracker(self, player_id: int, frame: np.ndarray, keypoint: List[float]):
         try:
             box = self.keypoint_to_box(keypoint)
             if box is None:
-                logger.warning(f"Failed to create bounding box for player {player_id}")
-                return False
+                logger.warning(f"Failed to initialize tracker for player {player_id} due to invalid keypoints")
+                return
 
-            for tracker_name in tracker_types.keys():
-                try:
-                    self.trackers[player_id] = tracker_types[tracker_name]()
-                    success = self.trackers[player_id].init(frame, box)
-                    if success:
-                        logger.info(f"Successfully initialized {tracker_name} tracker for player {player_id}")
-                        break
-                    else:
-                        logger.warning(f"Failed to initialize {tracker_name} tracker for player {player_id}")
-                except Exception as e:
-                    logger.error(f"Error initializing {tracker_name} tracker for player {player_id}: {str(e)}")
-
+            trackers = [
+                ('CSRT', cv2.TrackerCSRT_create),
+                ('KCF', cv2.TrackerKCF_create),
+                ('MIL', cv2.TrackerMIL_create)
+            ]
+            
+            success = False
+            for tracker_name, tracker_creator in trackers:
+                self.trackers[player_id] = tracker_creator()
+                success = self.trackers[player_id].init(frame, box)
+                if success:
+                    logger.info(f"Successfully initialized {tracker_name} tracker for player {player_id}")
+                    break
+                else:
+                    logger.warning(f"Failed to initialize {tracker_name} tracker for player {player_id}")
+            
             if not success:
                 logger.warning(f"Failed to initialize any tracker for player {player_id}")
-                return False
+                return
 
             # Initialize Kalman filter
             kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
             first_x, first_y = self.get_first_valid_coordinates(keypoint)
+            
+            if first_x is None or first_y is None:
+                logger.warning(f"Failed to initialize Kalman filter for player {player_id} due to invalid coordinates")
+                return
+
             kf.x = np.array([first_x, first_y, 0, 0]).reshape((4, 1))
             kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
             kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
             kf.P *= 1000
             kf.R *= 0.1
             kf.Q *= 0.1
+            
             self.kalman_filters[player_id] = kf
+            logger.info(f"Successfully initialized Kalman filter for player {player_id}")
 
-            self.last_reinitialization[player_id] = 0
             logger.info(f"Successfully initialized tracker and Kalman filter for player {player_id}")
-            return True
-
         except Exception as e:
             logger.error(f"Error initializing tracker for player {player_id}: {str(e)}")
-            return False
+            raise  # Re-raise the exception after logging
 
     def update(self, frame: np.ndarray, keypoints: List[List[float]]) -> List[List[float]]:
         updated_keypoints = []

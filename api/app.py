@@ -362,7 +362,7 @@ def get_job_status(job_id):
         if not item:
             return jsonify({'error': 'Job not found'}), 404
         
-                # Ensure 'progress' field is included for 'PROCESSING' jobs
+        # Ensure 'progress' field is included for 'PROCESSING' jobs
         if item.get('status') == 'PROCESSING':
             item['progress'] = item.get('progress', 0)
 
@@ -563,13 +563,15 @@ def read_parquet_from_s3(s3_path):
 
 def process_parquet_data(parquet_data):
     try:
+        # Convert DataFrame to list of dictionaries
         positions = parquet_data.to_dict('records')
         
+        # Format the data as expected by the frontend
         formatted_positions = []
         for pos in positions:
             formatted_positions.append({
                 'playerId': pos.get('player_id', ''),
-                'position': pos.get('position', ''),
+                'name': pos.get('position', ''),
                 'startTime': float(pos.get('start_time', 0)),
                 'endTime': float(pos.get('end_time', 0)),
                 'duration': float(pos.get('duration', 0)),

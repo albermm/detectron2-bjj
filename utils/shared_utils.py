@@ -5,6 +5,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 # Load environment variables
 load_dotenv()
@@ -64,7 +65,7 @@ dynamodb_table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 def generate_job_id():
     return str(uuid.uuid4())
 
-def update_job_status(job_id, user_id, status, file_type, file_name, s3_path=None, processed_video_s3_path=None, **kwargs):
+def update_job_status(job_id, user_id, status, file_type, file_name, position=None, s3_path=None, **kwargs):
     try:
         now = datetime.utcnow()
         item = {
@@ -77,16 +78,20 @@ def update_job_status(job_id, user_id, status, file_type, file_name, s3_path=Non
             'updatedAtTimestamp': int(now.timestamp())
         }
 
+        if position:
+            item['position'] = position
         if s3_path:
             item['s3_path'] = s3_path
-        if processed_video_s3_path:
-            item['processed_video_s3_path'] = processed_video_s3_path
 
         # Add any additional kwargs to the item
         for key, value in kwargs.items():
-            item[key] = value
+            if isinstance(value, (int, float)):
+                item[key] = Decimal(str(value))
+            elif isinstance(value, bool):
+                item[key] = value
+            else:
+                item[key] = str(value)
 
-        logger.info(f"Attempting to update DynamoDB with item: {item}")
         dynamodb_table.put_item(Item=item)
         logger.info(f"DynamoDB update successful for job {job_id}")
     except Exception as e:

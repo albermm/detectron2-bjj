@@ -218,11 +218,6 @@ class VideoProcessor:
 
                 progress_callback(frame_number / frame_count * 100)  # Report progress as percentage
 
-                # Periodically reinitialize tracker (e.g., every 5 seconds)
-                if frame_number % (5 * fps) == 0:
-                    for player_id, keypoint in enumerate(updated_keypoints):
-                        self.tracker.reset_tracker(player_id, frame, keypoint)
-
             # Add final positions
             for player_id, position in current_positions.items():
                 keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
@@ -283,6 +278,7 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         if total_frames == 0:
             raise ValueError(f"Invalid video file or no frames detected: {video_path}")
 
+
         update_job_status(job_id, user_id, 'PROCESSING', 'video', video_path, 
                           processing_start_time=start_time,
                           total_frames=total_frames,
@@ -316,7 +312,7 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
         temp_files.append(processed_video_path)
         
         # Create and save parquet file
-        data = {
+         data = {
             'job_id': [job_id] * len(positions),
             'user_id': [user_id] * len(positions),
             'player_id': [pos['player_id'] for pos in positions],
@@ -324,7 +320,10 @@ def process_video_async(video_path, output_path, job_id, user_id, frame_interval
             'start_time': [pos['start_time'].total_seconds() for pos in positions],
             'end_time': [pos['end_time'].total_seconds() for pos in positions],
             'duration': [(pos['end_time'] - pos['start_time']).total_seconds() for pos in positions],
-            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions]
+            'video_timestamp': [pos['start_time'].total_seconds() for pos in positions],
+            'confidence': [pos['confidence'] for pos in positions],
+            'keypoint_quality': [pos['keypoint_quality'] for pos in positions],
+            'is_smoothed': [pos['is_smoothed'] for pos in positions]
         }
         df = pa.Table.from_pydict(data)
         pq.write_table(df, parquet_file)
