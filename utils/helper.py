@@ -220,17 +220,18 @@ class VideoProcessor:
 
             # Add final positions
             for player_id, position in current_positions.items():
-                keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
-                smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
-                positions.append({
-                    'position': smoothed_position,
-                    'start_time': start_times[player_id],
-                    'end_time': timedelta(seconds=frame_count / fps),
-                    'player_id': player_id,
-                    'confidence': smoothed_confidence,
-                    'keypoint_quality': keypoint_quality,
-                    'is_smoothed': True
-                })
+                if player_id < len(updated_keypoints):
+                    keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
+                    smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(position, confidence)
+                    positions.append({
+                        'position': smoothed_position,
+                        'start_time': start_times[player_id],
+                        'end_time': timedelta(seconds=frame_count / fps),
+                        'player_id': player_id,
+                        'confidence': smoothed_confidence,
+                        'keypoint_quality': keypoint_quality,
+                        'is_smoothed': True
+                    })
 
             logger.info(f"Video processing completed. Total positions detected: {len(positions)}")
             return positions, processed_video_path
