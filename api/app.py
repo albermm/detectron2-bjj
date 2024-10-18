@@ -578,7 +578,14 @@ def process_parquet_data(parquet_data):
                 'videoTimestamp': float(pos.get('video_timestamp', 0)),
                 'confidence': float(pos.get('confidence', 0.0)),
                 'keypoint_quality': float(pos.get('keypoint_quality', 0.0)),
-                'is_smoothed': bool(pos.get('is_smoothed', False))
+                'is_smoothed': bool(pos.get('is_smoothed', False)),
+                'bounding_box': {
+                    'x1': float(pos.get('bounding_box_x1', 0)),
+                    'y1': float(pos.get('bounding_box_y1', 0)),
+                    'x2': float(pos.get('bounding_box_x2', 0)),
+                    'y2': float(pos.get('bounding_box_y2', 0)),
+                },
+                'keypoints': json.loads(pos.get('keypoints', '[]'))
             })
         
         return formatted_positions
