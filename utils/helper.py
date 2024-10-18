@@ -22,7 +22,7 @@ from .shared_utils import (
 )
 from .find_position import find_position
 from .combined_tracker import CombinedTracker
-from .find_position import PositionPredictor
+from .find_position import find_position
 
 class Predictor:
     def __init__(self):
@@ -58,6 +58,15 @@ class Predictor:
         except Exception as e:
             logger.error(f"Error in predict_keypoints: {str(e)}")
             return None, None
+
+    def predict_objects(self, frame):
+        try:
+            with torch.no_grad():
+                outputs = self.predictor_kp(frame)
+            return outputs
+        except Exception as e:
+            logger.error(f"Error in predict_objects: {str(e)}")
+            return None
 
     def save_detection_data(self, keypoint_outputs, object_outputs):
         try:
@@ -111,16 +120,6 @@ class Predictor:
             logger.error(f"Error in on_image: {str(e)}")
             return None, None, None, None
 
-import cv2
-import numpy as np
-import json
-import os
-from datetime import timedelta
-from typing import List, Tuple, Dict
-from .shared_utils import logger, Config
-from .find_position import find_position
-from .combined_tracker import CombinedTracker
-
 class VideoProcessor:
     def __init__(self, frame_interval: float = 0.1, position_change_threshold: float = 0.1):
         self.predictor = Predictor()
@@ -168,7 +167,7 @@ class VideoProcessor:
                 timestamp = timedelta(seconds=frame_number / fps)
 
                 keypoint_frame, keypoints, _, object_outputs = self.predictor.on_image(frame, f"{output_path}/frame_{frame_number}")
-                bounding_boxes = self.predictor.save_bounding_boxes(object_outputs)
+                
 
                 if keypoints and bounding_boxes and len(keypoints) == len(bounding_boxes):
                     updated_keypoints, updated_boxes = self.tracker.update(frame, keypoints, bounding_boxes)
