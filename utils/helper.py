@@ -105,7 +105,7 @@ class Predictor:
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
             object_outputs = self.predict_objects(image)
 
-             logger.info(f"Processing image with shape: {image.shape}")
+            logger.info(f"Processing image with shape: {image.shape}")
             if keypoint_frame is None or keypoint_outputs is None or object_outputs is None:
                 logger.error("Failed to predict keypoints or objects")
                 return None, None, None, None
@@ -278,7 +278,7 @@ class VideoProcessor:
             logger.info(f"Video processing completed. Total frames: {frame_count}, Processed frames: {processed_frames}, Successful detections: {successful_detections}")
             logger.info(f"Detected positions: {positions}")
 
-            
+
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
         if keypoints.size == 0:
             return 0.0
