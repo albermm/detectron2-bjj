@@ -285,7 +285,7 @@ def process_video():
         })
 
     except Exception as e:
-        logger.error(f"Error in process_video: {str(e)}")
+        logger.error(f"Error in process_video: {str(e)}", exc_info=True)
         if job_id and user_id and file_name:
             update_job_status(job_id, user_id, 'FAILED', 'video', file_name)
         return jsonify({'error': 'An error occurred while processing the video'}), 500

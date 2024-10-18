@@ -45,6 +45,15 @@ class Predictor:
             with torch.no_grad():
                 outputs = self.predictor_kp(frame)["instances"]
 
+            logger.info(f"Keypoint prediction output: {outputs}")
+            logger.info(f"Output fields: {outputs.get_fields()}")
+            logger.info(f"Number of instances: {len(outputs)}")
+
+            if "pred_keypoints" in outputs.get_fields():
+                logger.info(f"Keypoints shape: {outputs.pred_keypoints.shape}")
+            else:
+                logger.warning("No pred_keypoints in output")
+
             v = DetectronVisualizer(
                 frame[:, :, ::-1],
                 MetadataCatalog.get(self.cfg_kp.DATASETS.TRAIN[0]),
@@ -70,6 +79,7 @@ class Predictor:
 
     def save_detection_data(self, keypoint_outputs, object_outputs):
         try:
+            logger.info(f"Save detection data input: {outputs}")
             if hasattr(keypoint_outputs, 'pred_keypoints') and hasattr(object_outputs, 'pred_boxes'):
                 pred_keypoints = keypoint_outputs.pred_keypoints
                 pred_boxes = object_outputs.pred_boxes
@@ -77,7 +87,7 @@ class Predictor:
                 all_pred_boxes = [box.tensor.tolist() for box in pred_boxes]
                 return all_pred_keypoints, all_pred_boxes
             else:
-                logger.warning("Required attributes not present in the given outputs.")
+                logger.warning("The 'pred_keypoints' attribute is not present in the given outputs.")
                 return None, None
         except Exception as e:
             logger.error(f"Error in save_detection_data: {str(e)}")
@@ -95,6 +105,7 @@ class Predictor:
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
             object_outputs = self.predict_objects(image)
 
+             logger.info(f"Processing image with shape: {image.shape}")
             if keypoint_frame is None or keypoint_outputs is None or object_outputs is None:
                 logger.error("Failed to predict keypoints or objects")
                 return None, None, None, None
@@ -112,8 +123,10 @@ class Predictor:
             # Save both keypoints and bounding boxes to JSON
             with open(f"{output_path}_detection_data.json", 'w') as f:
                 json.dump({'keypoints': keypoints, 'bounding_boxes': bounding_boxes}, f)
+                logger.info(f"Saved keypoints to {output_path}_keypoints.json")
 
             predicted_position = find_position(keypoints)
+            logger.info(f"Predicted position: {predicted_position}")
 
             return keypoint_frame, keypoints, predicted_position, bounding_boxes
         except Exception as e:
@@ -149,6 +162,8 @@ class VideoProcessor:
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             frame_skip = max(1, int(fps * self.frame_interval))
+
+            logger.info(f"Video properties: FPS={fps}, Total Frames={frame_count}, Width={frame_width}, Height={frame_height}")
 
             processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -260,7 +275,10 @@ class VideoProcessor:
                 cap.release()
             if out is not None:
                 out.release()
+            logger.info(f"Video processing completed. Total frames: {frame_count}, Processed frames: {processed_frames}, Successful detections: {successful_detections}")
+            logger.info(f"Detected positions: {positions}")
 
+            
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
         if keypoints.size == 0:
             return 0.0
