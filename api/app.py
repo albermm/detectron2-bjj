@@ -25,7 +25,7 @@ from utils.shared_utils import (
     s3_client, dynamodb_table, generate_job_id,
     update_job_status, get_s3_url, validate_file_type, validate_user_id, logger
 )
-from utils.helper import Predictor, process_video_async
+from utils.helper import Predictor, process_video_async, VideoProcessor
 from threading import Thread
 
 
