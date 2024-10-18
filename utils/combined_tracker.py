@@ -2,7 +2,7 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 from typing import List, Tuple, Dict, Optional
 from .shared_utils import logger, Config
-from .position_predictor import PositionPredictor
+from .find_position import PositionPredictor
 
 class CombinedTracker:
     def __init__(self):

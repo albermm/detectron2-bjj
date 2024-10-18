@@ -22,6 +22,7 @@ from .shared_utils import (
 )
 from .find_position import find_position
 from .combined_tracker import CombinedTracker
+from .find_position import PositionPredictor
 
 class Predictor:
     def __init__(self):
@@ -315,7 +316,7 @@ class VideoProcessor:
         x1, y1, x2, y2 = map(int, box)
         return ((x1 + x2) // 2, (y1 + y2) // 2)
 
-        
+
 
 def generate_s3_path(user_id, job_id, file_type):
     user_hash = hashlib.md5(user_id.encode()).hexdigest()
