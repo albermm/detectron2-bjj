@@ -52,19 +52,22 @@ class Predictor:
         logger.info(f"Object detection model configuration: {self.cfg_obj}")
 
     def debug_instances(self, instances, source="unknown"):
-        """Helper method to debug instance attributes"""
-        logger.info(f"Debugging instances from {source}:")
-        logger.info(f"Type: {type(instances)}")
-        logger.info(f"Available fields: {instances.get_fields() if hasattr(instances, 'get_fields') else 'No fields method'}")
-        
-        if hasattr(instances, '_fields'):
-            logger.info(f"Raw fields: {instances._fields}")
-        
-        for field in ['pred_boxes', 'pred_keypoints', 'scores']:
-            if hasattr(instances, field):
-                attr = getattr(instances, field)
-                logger.info(f"{field} shape: {attr.shape if hasattr(attr, 'shape') else 'No shape'}")
-                logger.info(f"{field} type: {type(attr)}")
+        try:
+            logger.info(f"Debugging instances from {source}:")
+            logger.info(f"Type: {type(instances)}")
+            logger.info(f"Available fields: {instances.get_fields() if hasattr(instances, 'get_fields') else 'No fields method'}")
+            
+            if hasattr(instances, '_fields'):
+                logger.info(f"Raw fields: {instances._fields}")
+            
+            for field in ['pred_boxes', 'pred_keypoints', 'scores']:
+                if hasattr(instances, field):
+                    attr = getattr(instances, field)
+                    logger.info(f"{field} shape: {attr.shape if hasattr(attr, 'shape') else 'No shape'}")
+                    logger.info(f"{field} type: {type(attr)}")
+        except Exception as e:
+            logger.error(f"Error in debug_instances: {str(e)}", exc_info=True)
+
 
     def predict_keypoints(self, frame):
         try:
@@ -107,32 +110,7 @@ class Predictor:
             logger.error(f"Error in predict_objects: {str(e)}", exc_info=True)
             return None
 
-    def filter_low_confidence_detections(self, keypoints, bounding_boxes, keypoint_threshold=0.5, box_threshold=0.5):
-        """Filter out low confidence detections"""
-        try:
-            # Filter keypoints
-            filtered_keypoints = []
-            for person_keypoints in keypoints:
-                confident_keypoints = []
-                for kp in person_keypoints:
-                    if kp[2] > keypoint_threshold:  # kp[2] is confidence
-                        confident_keypoints.append(kp)
-                if confident_keypoints:  # Only add if there are confident keypoints
-                    filtered_keypoints.append(confident_keypoints)
-            
-            # Filter bounding boxes
-            filtered_boxes = [box for box in bounding_boxes if box[1] > box_threshold]  # box[1] is confidence
-            
-            logger.info(f"Filtered keypoints: {len(filtered_keypoints)} from {len(keypoints)}")
-            logger.info(f"Filtered boxes: {len(filtered_boxes)} from {len(bounding_boxes)}")
-            
-            return filtered_keypoints, filtered_boxes
-        except Exception as e:
-            logger.error(f"Error in filter_low_confidence_detections: {str(e)}", exc_info=True)
-            return keypoints, bounding_boxes
-
     def visualize_detections(self, image, keypoints, bounding_boxes):
-        """Visualize both keypoints and bounding boxes on the image"""
         try:
             vis_image = image.copy()
             
@@ -191,6 +169,54 @@ class Predictor:
                 logger.info(f"Found pred_boxes with shape: {pred_boxes.tensor.shape}")
             else:
                 logger.warning("pred_boxes attribute not found in object_outputs")
+            
+            # Convert to lists with careful error handling
+            all_pred_keypoints = []
+            all_pred_boxes = []
+            
+            if pred_keypoints is not None:
+                try:
+                    all_pred_keypoints = [keypoints.cpu().numpy().tolist() for keypoints in pred_keypoints]
+                    logger.info(f"Successfully extracted {len(all_pred_keypoints)} keypoint sets")
+                except Exception as e:
+                    logger.error(f"Error converting keypoints: {str(e)}", exc_info=True)
+            
+            if pred_boxes is not None:
+                try:
+                    all_pred_boxes = [box.tensor.cpu().numpy().tolist() for box in pred_boxes]
+                    logger.info(f"Successfully extracted {len(all_pred_boxes)} bounding boxes")
+                except Exception as e:
+                    logger.error(f"Error converting bounding boxes: {str(e)}", exc_info=True)
+            
+            return all_pred_keypoints, all_pred_boxes
+        except Exception as e:
+            logger.error(f"Error in save_detection_data: {str(e)}", exc_info=True)
+            return None, None
+
+    def filter_low_confidence_detections(self, keypoints, bounding_boxes, keypoint_threshold=0.5, box_threshold=0.5):
+        try:
+            # Filter keypoints
+            filtered_keypoints = []
+            for person_keypoints in keypoints:
+                confident_keypoints = []
+                for kp in person_keypoints:
+                    if kp[2] > keypoint_threshold:  # kp[2] is confidence
+                        confident_keypoints.append(kp)
+                if confident_keypoints:  # Only add if there are confident keypoints
+                    filtered_keypoints.append(confident_keypoints)
+            
+            # Filter bounding boxes
+            filtered_boxes = [box for box in bounding_boxes if box[1] > box_threshold]  # box[1] is confidence
+            
+            logger.info(f"Filtered keypoints: {len(filtered_keypoints)} from {len(keypoints)}")
+            logger.info(f"Filtered boxes: {len(filtered_boxes)} from {len(bounding_boxes)}")
+            
+            return filtered_keypoints, filtered_boxes
+        except Exception as e:
+            logger.error(f"Error in filter_low_confidence_detections: {str(e)}", exc_info=True)
+            return keypoints, bounding_boxes
+
+    
 
     def on_image(self, input_path, output_path):
         try:
