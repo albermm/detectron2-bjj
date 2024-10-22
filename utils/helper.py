@@ -33,105 +33,227 @@ class Predictor:
         except Exception as e:
             logger.error(f"Failed to load model from {Config.MODEL_PATH}: {str(e)}")
 
+        # Keypoint detection configuration
         self.cfg_kp = get_cfg()
         self.cfg_kp.merge_from_file(model_zoo.get_config_file(Config.KEYPOINT_CONFIG))
         self.cfg_kp.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(Config.KEYPOINT_CONFIG)
         self.cfg_kp.MODEL.ROI_HEADS.SCORE_THRESH_TEST = Config.KEYPOINT_THRESHOLD
         self.cfg_kp.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         self.predictor_kp = DefaultPredictor(self.cfg_kp)
+        logger.info(f"Keypoint model configuration: {self.cfg_kp}")
+
+        # Object detection configuration
+        self.cfg_obj = get_cfg()
+        self.cfg_obj.merge_from_file(model_zoo.get_config_file(Config.BOUNDING_BOX_CONFIG))
+        self.cfg_obj.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(Config.BOUNDING_BOX_CONFIG)
+        self.cfg_obj.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+        self.cfg_obj.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+        self.predictor_obj = DefaultPredictor(self.cfg_obj)
+        logger.info(f"Object detection model configuration: {self.cfg_obj}")
+
+    def debug_instances(self, instances, source="unknown"):
+        """Helper method to debug instance attributes"""
+        logger.info(f"Debugging instances from {source}:")
+        logger.info(f"Type: {type(instances)}")
+        logger.info(f"Available fields: {instances.get_fields() if hasattr(instances, 'get_fields') else 'No fields method'}")
+        
+        if hasattr(instances, '_fields'):
+            logger.info(f"Raw fields: {instances._fields}")
+        
+        for field in ['pred_boxes', 'pred_keypoints', 'scores']:
+            if hasattr(instances, field):
+                attr = getattr(instances, field)
+                logger.info(f"{field} shape: {attr.shape if hasattr(attr, 'shape') else 'No shape'}")
+                logger.info(f"{field} type: {type(attr)}")
 
     def predict_keypoints(self, frame):
         try:
+            logger.info("Starting keypoint prediction")
+            logger.info(f"Input frame shape: {frame.shape}")
+            
             with torch.no_grad():
-                outputs = self.predictor_kp(frame)["instances"]
-
-            logger.info(f"Keypoint prediction output: {outputs}")
-            logger.info(f"Output fields: {outputs.get_fields()}")
-            logger.info(f"Number of instances: {len(outputs)}")
-
-            if "pred_keypoints" in outputs.get_fields():
-                logger.info(f"Keypoints shape: {outputs.pred_keypoints.shape}")
-            else:
-                logger.warning("No pred_keypoints in output")
-
+                outputs = self.predictor_kp(frame)
+                logger.info("Raw predictor output keys: " + str(outputs.keys()))
+            
+            instances = outputs["instances"]
+            self.debug_instances(instances, "keypoint_prediction")
+            
             v = DetectronVisualizer(
                 frame[:, :, ::-1],
                 MetadataCatalog.get(self.cfg_kp.DATASETS.TRAIN[0]),
                 scale=1.5,
                 instance_mode=ColorMode.IMAGE_BW,
             )
-            output = v.draw_instance_predictions(outputs.to("cpu"))
-
+            output = v.draw_instance_predictions(instances.to("cpu"))
             out_frame = output.get_image()[:, :, ::-1]
-            return out_frame, outputs
+            
+            logger.info("Keypoint prediction completed successfully")
+            return out_frame, instances
         except Exception as e:
-            logger.error(f"Error in predict_keypoints: {str(e)}")
+            logger.error(f"Error in predict_keypoints: {str(e)}", exc_info=True)
             return None, None
 
     def predict_objects(self, frame):
         try:
+            logger.info("Starting object detection")
             with torch.no_grad():
-                outputs = self.predictor_kp(frame)
-            return outputs
+                outputs = self.predictor_obj(frame)
+            instances = outputs["instances"]
+            self.debug_instances(instances, "object_detection")
+            
+            logger.info("Object detection completed successfully")
+            return instances
         except Exception as e:
-            logger.error(f"Error in predict_objects: {str(e)}")
+            logger.error(f"Error in predict_objects: {str(e)}", exc_info=True)
             return None
+
+    def filter_low_confidence_detections(self, keypoints, bounding_boxes, keypoint_threshold=0.5, box_threshold=0.5):
+        """Filter out low confidence detections"""
+        try:
+            # Filter keypoints
+            filtered_keypoints = []
+            for person_keypoints in keypoints:
+                confident_keypoints = []
+                for kp in person_keypoints:
+                    if kp[2] > keypoint_threshold:  # kp[2] is confidence
+                        confident_keypoints.append(kp)
+                if confident_keypoints:  # Only add if there are confident keypoints
+                    filtered_keypoints.append(confident_keypoints)
+            
+            # Filter bounding boxes
+            filtered_boxes = [box for box in bounding_boxes if box[1] > box_threshold]  # box[1] is confidence
+            
+            logger.info(f"Filtered keypoints: {len(filtered_keypoints)} from {len(keypoints)}")
+            logger.info(f"Filtered boxes: {len(filtered_boxes)} from {len(bounding_boxes)}")
+            
+            return filtered_keypoints, filtered_boxes
+        except Exception as e:
+            logger.error(f"Error in filter_low_confidence_detections: {str(e)}", exc_info=True)
+            return keypoints, bounding_boxes
+
+    def visualize_detections(self, image, keypoints, bounding_boxes):
+        """Visualize both keypoints and bounding boxes on the image"""
+        try:
+            vis_image = image.copy()
+            
+            # Draw bounding boxes
+            for box in bounding_boxes:
+                x1, y1, x2, y2 = map(int, box[0])
+                cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                # Add confidence score if available
+                if len(box) > 1:
+                    conf = f"{box[1]:.2f}"
+                    cv2.putText(vis_image, conf, (x1, y1-10), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            # Define keypoint connections for visualization
+            keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
+                            (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
+            
+            # Draw keypoints and connections
+            for person_keypoints in keypoints:
+                # Draw connections first
+                for pair in keypoint_pairs:
+                    if (person_keypoints[pair[0]][2] > 0.5 and 
+                        person_keypoints[pair[1]][2] > 0.5):
+                        pt1 = tuple(map(int, person_keypoints[pair[0]][:2]))
+                        pt2 = tuple(map(int, person_keypoints[pair[1]][:2]))
+                        cv2.line(vis_image, pt1, pt2, (255, 0, 0), 1)
+                
+                # Draw keypoints
+                for x, y, conf in person_keypoints:
+                    if conf > 0.5:
+                        cv2.circle(vis_image, (int(x), int(y)), 3, (0, 0, 255), -1)
+            
+            return vis_image
+        except Exception as e:
+            logger.error(f"Error in visualize_detections: {str(e)}", exc_info=True)
+            return image
 
     def save_detection_data(self, keypoint_outputs, object_outputs):
         try:
-            logger.info(f"Save detection data input: {outputs}")
-            if hasattr(keypoint_outputs, 'pred_keypoints') and hasattr(object_outputs, 'pred_boxes'):
+            logger.info("Starting detection data extraction")
+            self.debug_instances(keypoint_outputs, "keypoint_outputs_in_save")
+            self.debug_instances(object_outputs, "object_outputs_in_save")
+            
+            # Extract keypoints with detailed error checking
+            pred_keypoints = None
+            if hasattr(keypoint_outputs, 'pred_keypoints'):
                 pred_keypoints = keypoint_outputs.pred_keypoints
-                pred_boxes = object_outputs.pred_boxes
-                all_pred_keypoints = [keypoints.tolist() for keypoints in pred_keypoints]
-                all_pred_boxes = [box.tensor.tolist() for box in pred_boxes]
-                return all_pred_keypoints, all_pred_boxes
+                logger.info(f"Found pred_keypoints with shape: {pred_keypoints.shape}")
             else:
-                logger.warning("The 'pred_keypoints' attribute is not present in the given outputs.")
-                return None, None
-        except Exception as e:
-            logger.error(f"Error in save_detection_data: {str(e)}")
-            return None, None
+                logger.warning("pred_keypoints attribute not found in keypoint_outputs")
+            
+            # Extract bounding boxes with detailed error checking
+            pred_boxes = None
+            if hasattr(object_outputs, 'pred_boxes'):
+                pred_boxes = object_outputs.pred_boxes
+                logger.info(f"Found pred_boxes with shape: {pred_boxes.tensor.shape}")
+            else:
+                logger.warning("pred_boxes attribute not found in object_outputs")
 
     def on_image(self, input_path, output_path):
         try:
+            logger.info(f"Starting image processing: {input_path}")
             if isinstance(input_path, np.ndarray):
                 image = input_path
             else:
                 image = cv2.imread(str(input_path))
             if image is None:
                 raise ValueError(f"Failed to load image from {input_path}")
-
+            
+            logger.info(f"Image loaded successfully. Shape: {image.shape}")
+            
+            # Predict keypoints and objects
+            logger.info("Starting keypoint prediction")
             keypoint_frame, keypoint_outputs = self.predict_keypoints(image)
+            
+            logger.info("Starting object detection")
             object_outputs = self.predict_objects(image)
-
-            logger.info(f"Processing image with shape: {image.shape}")
+            
             if keypoint_frame is None or keypoint_outputs is None or object_outputs is None:
                 logger.error("Failed to predict keypoints or objects")
                 return None, None, None, None
-
+            
+            # Save visualization
             if isinstance(keypoint_frame, np.ndarray) and keypoint_frame.size > 0:
                 cv2.imwrite(f"{output_path}_keypoints.jpg", keypoint_frame)
-            else:
-                logger.warning(f"Invalid keypoint_frame, not saving the image.")
-
+                logger.info(f"Saved keypoint visualization")
+            
+            # Extract and filter detections
             keypoints, bounding_boxes = self.save_detection_data(keypoint_outputs, object_outputs)
             if keypoints is None or bounding_boxes is None:
                 logger.error("Failed to extract keypoints or bounding boxes")
                 return None, None, None, None
-
-            # Save both keypoints and bounding boxes to JSON
+            
+            # Filter low confidence detections
+            keypoints, bounding_boxes = self.filter_low_confidence_detections(keypoints, bounding_boxes)
+            
+            # Create and save combined visualization
+            visualized_image = self.visualize_detections(image, keypoints, bounding_boxes)
+            cv2.imwrite(f"{output_path}_visualized.jpg", visualized_image)
+            logger.info(f"Saved combined visualization")
+            
+            # Save detection data
             with open(f"{output_path}_detection_data.json", 'w') as f:
-                json.dump({'keypoints': keypoints, 'bounding_boxes': bounding_boxes}, f)
-                logger.info(f"Saved keypoints to {output_path}_keypoints.json")
-
+                json.dump({
+                    'keypoints': keypoints,
+                    'bounding_boxes': bounding_boxes,
+                    'num_keypoints': len(keypoints),
+                    'num_boxes': len(bounding_boxes)
+                }, f, indent=2)
+            logger.info(f"Saved detection data")
+            
+            # Predict position
             predicted_position = find_position(keypoints)
             logger.info(f"Predicted position: {predicted_position}")
-
+            
             return keypoint_frame, keypoints, predicted_position, bounding_boxes
+            
         except Exception as e:
-            logger.error(f"Error in on_image: {str(e)}")
+            logger.error(f"Error in on_image: {str(e)}", exc_info=True)
             return None, None, None, None
+
 
 class VideoProcessor:
     def __init__(self, frame_interval: float = 0.1, position_change_threshold: float = 0.1):
