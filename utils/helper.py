@@ -321,6 +321,7 @@ class Predictor:
             return None, None, None, None
 
 
+
 class VideoProcessor:
     def __init__(self, frame_interval: float = 0.1, position_change_threshold: float = 0.1):
         self.predictor = Predictor()
@@ -329,23 +330,16 @@ class VideoProcessor:
         self.position_change_threshold = position_change_threshold
         self.position_smoothers = {}
 
-
     def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
-        # Initialize variables
         cap = None
         out = None
         positions: List[Dict] = []
-        processed_video_path = ""
         current_positions = {}
         start_times = {}
         processed_frames = 0
         successful_detections = 0
 
         try:
-            # Verify initialization
-            if not hasattr(self, 'predictor') or not hasattr(self, 'tracker'):
-                raise AttributeError("Predictor or tracker not initialized")
-
             # Open video capture
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
@@ -368,11 +362,6 @@ class VideoProcessor:
             if not out.isOpened():
                 raise ValueError("Failed to create output video writer")
 
-            # Define visualization parameters
-            colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
-            pose_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), (6, 7), 
-                        (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
-
             for frame_number in range(0, frame_count, frame_skip):
                 try:
                     # Read frame
@@ -380,92 +369,64 @@ class VideoProcessor:
                     ret, frame = cap.read()
                     if not ret:
                         logger.warning(f"Failed to read frame {frame_number}")
-                        break
+                        continue
 
                     processed_frames += 1
                     timestamp = timedelta(seconds=frame_number / fps)
 
                     # Process frame
-                    frame_copy = frame.copy()  # Create a copy for visualization
-                    keypoint_frame, keypoints, _, object_outputs = self.predictor.on_image(
+                    frame_copy = frame.copy()
+                    keypoint_frame, keypoints, _, bounding_boxes = self.predictor.on_image(
                         frame, f"{output_path}/frame_{frame_number}")
-                    
-                    # Extract bounding boxes with fixed handling
-                    bounding_boxes = []
-                    if object_outputs is not None and hasattr(object_outputs, 'pred_boxes'):
-                        boxes = object_outputs.pred_boxes.tensor.cpu().numpy()
-                        scores = object_outputs.scores.cpu().numpy()
-                        bounding_boxes = [[box, score] for box, score in zip(boxes, scores)]
 
-                    # Update tracking
-                    if keypoints and bounding_boxes and len(keypoints) > 0:
-                        updated_keypoints, updated_boxes = self.tracker.update(frame_copy, keypoints, bounding_boxes)
+                    # Process detections
+                    if keypoints and len(keypoints) > 0:
                         successful_detections += 1
-
-                        # Detect interactions
-                        interactions = self.detect_interactions(updated_boxes)
-
+                        # Update tracking
+                        updated_keypoints = self.tracker.update(frame_copy, keypoints)
+                        
                         # Process each detected person
-                        for player_id, (keypoint, box) in enumerate(zip(updated_keypoints, updated_boxes)):
+                        for player_id, keypoint in enumerate(updated_keypoints):
                             try:
-                                color = colors[player_id % len(colors)]
-                                
-                                # Draw bounding box
-                                x1, y1, x2, y2 = box[0]
-                                cv2.rectangle(frame_copy, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                                
-                                # Calculate keypoint quality and detect occlusions
-                                keypoint_quality = self.calculate_keypoint_quality(np.array(keypoint))
-                                occluded = self.detect_occlusion(keypoint, updated_boxes)
-                                
-                                # Position detection and smoothing
+                                # Get position and confidence
                                 position, confidence = self.tracker.find_position([keypoint])
-                                if player_id not in self.position_smoothers:
-                                    self.position_smoothers[player_id] = PositionSmoother()
-                                smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(
-                                    position, confidence)
                                 
-                                # Draw annotations
-                                status_text = f"Player {player_id}: {smoothed_position}"
-                                if occluded:
-                                    status_text += " (Occluded)"
-                                cv2.putText(frame_copy, status_text, (int(x1), int(y1)-10), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                                
-                                # Draw keypoints and connections
-                                self.draw_keypoints_and_connections(frame_copy, keypoint, color, pose_pairs)
+                                # Only process if we got a valid position
+                                if position:
+                                    # Update position tracking
+                                    if player_id not in current_positions or position != current_positions[player_id]:
+                                        if player_id in current_positions:
+                                            # Store the previous position
+                                            positions.append({
+                                                'position': current_positions[player_id],
+                                                'start_time': start_times[player_id],
+                                                'end_time': timestamp,
+                                                'player_id': player_id,
+                                                'confidence': confidence,
+                                                'keypoint_quality': self.tracker.calculate_keypoint_quality(np.array(keypoint)),
+                                                'is_smoothed': True,
+                                                'bounding_box': bounding_boxes[player_id][0].tolist() if player_id < len(bounding_boxes) else None,
+                                                'keypoints': keypoint
+                                            })
+                                        # Update current position
+                                        current_positions[player_id] = position
+                                        start_times[player_id] = timestamp
 
-                                # Update position data
-                                if player_id not in current_positions or smoothed_position != current_positions[player_id]:
-                                    if player_id in current_positions:
-                                        positions.append({
-                                            'position': smoothed_position,
-                                            'start_time': start_times[player_id],
-                                            'end_time': timestamp,
-                                            'player_id': player_id,
-                                            'confidence': smoothed_confidence,
-                                            'keypoint_quality': keypoint_quality,
-                                            'is_smoothed': True,
-                                            'bounding_box': box[0].tolist(),
-                                            'keypoints': keypoint,
-                                            'occluded': occluded
-                                        })
-                                    current_positions[player_id] = smoothed_position
-                                    start_times[player_id] = timestamp
+                                # Draw visualizations
+                                if keypoint_frame is not None:
+                                    frame_copy = keypoint_frame.copy()
+                                else:
+                                    # Draw keypoints and connections directly
+                                    self.draw_detections(frame_copy, [keypoint], [bb[0] for bb in bounding_boxes] if bounding_boxes else [], player_id)
 
                             except Exception as e:
                                 logger.error(f"Error processing player {player_id} in frame {frame_number}: {str(e)}")
                                 continue
 
-                        # Draw interaction lines
-                        self.draw_interactions(frame_copy, interactions, updated_boxes)
-
-                        # Write the processed frame
-                        out.write(frame_copy)
-                    else:
-                        logger.warning(f"Invalid detections in frame {frame_number}")
-                        out.write(frame)  # Write original frame if processing fails
-
+                    # Write the processed frame
+                    out.write(frame_copy)
+                    
+                    # Update progress
                     progress_callback(frame_number / frame_count * 100)
 
                 except Exception as e:
@@ -476,27 +437,17 @@ class VideoProcessor:
 
             # Add final positions
             for player_id, position in current_positions.items():
-                try:
-                    if player_id < len(updated_keypoints):
-                        keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
-                        smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(
-                            position, confidence)
-                        occluded = self.detect_occlusion(updated_keypoints[player_id], updated_boxes)
-                        positions.append({
-                            'position': smoothed_position,
-                            'start_time': start_times[player_id],
-                            'end_time': timedelta(seconds=frame_count / fps),
-                            'player_id': player_id,
-                            'confidence': smoothed_confidence,
-                            'keypoint_quality': keypoint_quality,
-                            'is_smoothed': True,
-                            'bounding_box': updated_boxes[player_id][0].tolist(),
-                            'keypoints': updated_keypoints[player_id],
-                            'occluded': occluded
-                        })
-                except Exception as e:
-                    logger.error(f"Error adding final position for player {player_id}: {str(e)}")
-                    continue
+                positions.append({
+                    'position': position,
+                    'start_time': start_times[player_id],
+                    'end_time': timedelta(seconds=frame_count / fps),
+                    'player_id': player_id,
+                    'confidence': confidence,
+                    'keypoint_quality': self.tracker.calculate_keypoint_quality(np.array(updated_keypoints[player_id])) if player_id < len(updated_keypoints) else 0.0,
+                    'is_smoothed': True,
+                    'bounding_box': bounding_boxes[player_id][0].tolist() if player_id < len(bounding_boxes) else None,
+                    'keypoints': updated_keypoints[player_id] if player_id < len(updated_keypoints) else None
+                })
 
             logger.info(f"Video processing completed. Total frames: {frame_count}, "
                     f"Processed frames: {processed_frames}, "
@@ -514,7 +465,41 @@ class VideoProcessor:
             if out is not None:
                 out.release()
 
+    def draw_detections(self, frame: np.ndarray, keypoints: List[List[float]], 
+                       bounding_boxes: List[List[float]], player_id: int):
+        # Define colors for different players
+        colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
+        color = colors[player_id % len(colors)]
+        
+        # Draw bounding box
+        if player_id < len(bounding_boxes):
+            box = bounding_boxes[player_id]
+            cv2.rectangle(frame, 
+                         (int(box[0]), int(box[1])), 
+                         (int(box[2]), int(box[3])), 
+                         color, 2)
 
+        # Define keypoint connections for visualization
+        keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
+                         (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
+
+        # Draw keypoints and connections
+        keypoint_array = np.array(keypoints[0]).reshape(-1, 3)
+        
+        # Draw connections
+        for pair in keypoint_pairs:
+            if (keypoint_array[pair[0], 2] > 0.5 and 
+                keypoint_array[pair[1], 2] > 0.5):
+                pt1 = (int(keypoint_array[pair[0], 0]), int(keypoint_array[pair[0], 1]))
+                pt2 = (int(keypoint_array[pair[1], 0]), int(keypoint_array[pair[1], 1]))
+                cv2.line(frame, pt1, pt2, color, 2)
+        
+        # Draw keypoints
+        for kp in keypoint_array:
+            if kp[2] > 0.5:  # Only draw high confidence keypoints
+                cv2.circle(frame, (int(kp[0]), int(kp[1])), 4, color, -1)
+
+                
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
         if keypoints.size == 0:
             return 0.0
