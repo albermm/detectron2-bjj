@@ -440,76 +440,76 @@ class VideoProcessor:
                                 (frame_width, frame_height))
 
             for frame_number in range(0, frame_count, frame_skip):
-            try:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-                ret, frame = cap.read()
-                if not ret:
-                    continue
+                try:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+                    ret, frame = cap.read()
+                    if not ret:
+                        continue
 
-                processed_frames += 1
-                timestamp = timedelta(seconds=frame_number / fps)
+                    processed_frames += 1
+                    timestamp = timedelta(seconds=frame_number / fps)
 
-                # Process frame
-                keypoint_frame, keypoints, _, bounding_boxes = self.predictor.on_image(
-                    frame, f"{output_path}/frame_{frame_number}")
-                
-                if keypoints and len(keypoints) > 0:
-                    successful_detections += 1
+                    # Process frame
+                    keypoint_frame, keypoints, _, bounding_boxes = self.predictor.on_image(
+                        frame, f"{output_path}/frame_{frame_number}")
                     
-                    # Format bounding boxes properly
-                    formatted_boxes = self._format_bounding_boxes(bounding_boxes) if bounding_boxes else None
-                    
-                    # Update tracking with both keypoints and bounding boxes
-                    updated_keypoints = self.tracker.update(frame, keypoints, formatted_boxes)
-                    
-                    # Process detections for each person
-                    frame_positions = {}
-                    for player_id, (keypoint, bbox) in enumerate(zip(updated_keypoints, formatted_boxes or [])):
-                        try:
-                            position, confidence = self.tracker.find_position([keypoint])
-                            
-                            if position:
-                                frame_positions[player_id] = position
+                    if keypoints and len(keypoints) > 0:
+                        successful_detections += 1
+                        
+                        # Format bounding boxes properly
+                        formatted_boxes = self._format_bounding_boxes(bounding_boxes) if bounding_boxes else None
+                        
+                        # Update tracking with both keypoints and bounding boxes
+                        updated_keypoints = self.tracker.update(frame, keypoints, formatted_boxes)
+                        
+                        # Process detections for each person
+                        frame_positions = {}
+                        for player_id, (keypoint, bbox) in enumerate(zip(updated_keypoints, formatted_boxes or [])):
+                            try:
+                                position, confidence = self.tracker.find_position([keypoint])
                                 
-                                if player_id not in current_positions or position != current_positions[player_id]:
-                                    if player_id in current_positions:
-                                        positions.append({
-                                            'position': current_positions[player_id],
-                                            'start_time': start_times[player_id],
-                                            'end_time': timestamp,
-                                            'player_id': player_id,
-                                            'confidence': confidence,
-                                            'keypoint_quality': self.tracker.calculate_keypoint_quality(np.array(keypoint)),
-                                            'is_smoothed': True,
-                                            'bounding_box': bbox if bbox else None,
-                                            'keypoints': keypoint
-                                        })
-                                    current_positions[player_id] = position
-                                    start_times[player_id] = timestamp
+                                if position:
+                                    frame_positions[player_id] = position
+                                    
+                                    if player_id not in current_positions or position != current_positions[player_id]:
+                                        if player_id in current_positions:
+                                            positions.append({
+                                                'position': current_positions[player_id],
+                                                'start_time': start_times[player_id],
+                                                'end_time': timestamp,
+                                                'player_id': player_id,
+                                                'confidence': confidence,
+                                                'keypoint_quality': self.tracker.calculate_keypoint_quality(np.array(keypoint)),
+                                                'is_smoothed': True,
+                                                'bounding_box': bbox if bbox else None,
+                                                'keypoints': keypoint
+                                            })
+                                        current_positions[player_id] = position
+                                        start_times[player_id] = timestamp
 
-                        except Exception as e:
-                            logger.error(f"Error processing player {player_id}: {str(e)}")
-                            continue
+                            except Exception as e:
+                                logger.error(f"Error processing player {player_id}: {str(e)}")
+                                continue
 
-                    # Visualize frame with all detections
-                    processed_frame = self.visualize_detections(
-                        frame, 
-                        updated_keypoints,
-                        formatted_boxes if formatted_boxes else bounding_boxes,
-                        frame_positions
-                    )
-                    out.write(processed_frame)
-                    
-                else:
-                    out.write(frame)
+                        # Visualize frame with all detections
+                        processed_frame = self.visualize_detections(
+                            frame, 
+                            updated_keypoints,
+                            formatted_boxes if formatted_boxes else bounding_boxes,
+                            frame_positions
+                        )
+                        out.write(processed_frame)
+                        
+                    else:
+                        out.write(frame)
 
-                progress_callback(frame_number / frame_count * 100)
+                    progress_callback(frame_number / frame_count * 100)
 
-            except Exception as e:
-                logger.error(f"Error processing frame {frame_number}: {str(e)}", exc_info=True)
-                if frame is not None:
-                    out.write(frame)
-                continue
+                except Exception as e:
+                    logger.error(f"Error processing frame {frame_number}: {str(e)}", exc_info=True)
+                    if frame is not None:
+                        out.write(frame)
+                    continue
 
             # Add final positions
             final_time = timedelta(seconds=frame_count / fps)
