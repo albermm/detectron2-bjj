@@ -46,6 +46,7 @@ class Config:
     # Keypoint configuration
     KEYPOINT_CONFIG = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"
     KEYPOINT_THRESHOLD = 0.7
+    BOUNDING_BOX_CONFIG = "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
 
     # File type configuration
     VIDEO_EXTENSIONS = ('.mp4', '.mov', '.avi')
