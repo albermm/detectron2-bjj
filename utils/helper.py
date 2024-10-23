@@ -111,80 +111,80 @@ class Predictor:
             return None
 
     def visualize_detections(self, image, keypoints, bounding_boxes):
-    try:
-        if image is None:
-            logger.error("Input image is None")
-            return None
+        try:
+            if image is None:
+                logger.error("Input image is None")
+                return None
+                
+            vis_image = image.copy()
+            logger.debug(f"Visualizing detections: {len(keypoints) if keypoints else 0} keypoints, {len(bounding_boxes) if bounding_boxes else 0} boxes")
             
-        vis_image = image.copy()
-        logger.debug(f"Visualizing detections: {len(keypoints) if keypoints else 0} keypoints, {len(bounding_boxes) if bounding_boxes else 0} boxes")
-        
-        # Draw bounding boxes
-        if bounding_boxes and isinstance(bounding_boxes, list):
-            for box_info in bounding_boxes:
-                try:
-                    if isinstance(box_info, list) and len(box_info) >= 2:
-                        box = box_info[0]
-                        confidence = box_info[1]
-                        if isinstance(box, list) and len(box) == 4:
-                            x1, y1, x2, y2 = map(int, box)
-                            cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(vis_image, f"{confidence:.2f}", 
-                                      (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                      0.5, (0, 255, 0), 2)
+            # Draw bounding boxes
+            if bounding_boxes and isinstance(bounding_boxes, list):
+                for box_info in bounding_boxes:
+                    try:
+                        if isinstance(box_info, list) and len(box_info) >= 2:
+                            box = box_info[0]
+                            confidence = box_info[1]
+                            if isinstance(box, list) and len(box) == 4:
+                                x1, y1, x2, y2 = map(int, box)
+                                cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                cv2.putText(vis_image, f"{confidence:.2f}", 
+                                        (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                                        0.5, (0, 255, 0), 2)
+                            else:
+                                logger.warning(f"Invalid box format: {box}")
                         else:
-                            logger.warning(f"Invalid box format: {box}")
-                    else:
-                        logger.warning(f"Invalid box_info format: {box_info}")
-                except Exception as e:
-                    logger.warning(f"Error drawing bounding box: {str(e)}")
-                    continue
-        
-        # Define keypoint connections for visualization
-        keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
-                         (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
-        
-        # Draw keypoints and connections
-        if keypoints and isinstance(keypoints, list):
-            for person_idx, person_keypoints in enumerate(keypoints):
-                try:
-                    if not isinstance(person_keypoints, list):
-                        logger.warning(f"Invalid keypoints format for person {person_idx}")
+                            logger.warning(f"Invalid box_info format: {box_info}")
+                    except Exception as e:
+                        logger.warning(f"Error drawing bounding box: {str(e)}")
                         continue
+            
+            # Define keypoint connections for visualization
+            keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
+                            (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
+            
+            # Draw keypoints and connections
+            if keypoints and isinstance(keypoints, list):
+                for person_idx, person_keypoints in enumerate(keypoints):
+                    try:
+                        if not isinstance(person_keypoints, list):
+                            logger.warning(f"Invalid keypoints format for person {person_idx}")
+                            continue
+                            
+                        # Draw connections
+                        for pair in keypoint_pairs:
+                            try:
+                                if (len(person_keypoints) > max(pair) and 
+                                    len(person_keypoints[pair[0]]) > 2 and 
+                                    len(person_keypoints[pair[1]]) > 2 and 
+                                    person_keypoints[pair[0]][2] > 0.5 and 
+                                    person_keypoints[pair[1]][2] > 0.5):
+                                    
+                                    pt1 = tuple(map(int, person_keypoints[pair[0]][:2]))
+                                    pt2 = tuple(map(int, person_keypoints[pair[1]][:2]))
+                                    cv2.line(vis_image, pt1, pt2, (255, 0, 0), 1)
+                            except Exception as e:
+                                logger.warning(f"Error drawing connection {pair}: {str(e)}")
+                                continue
                         
-                    # Draw connections
-                    for pair in keypoint_pairs:
-                        try:
-                            if (len(person_keypoints) > max(pair) and 
-                                len(person_keypoints[pair[0]]) > 2 and 
-                                len(person_keypoints[pair[1]]) > 2 and 
-                                person_keypoints[pair[0]][2] > 0.5 and 
-                                person_keypoints[pair[1]][2] > 0.5):
-                                
-                                pt1 = tuple(map(int, person_keypoints[pair[0]][:2]))
-                                pt2 = tuple(map(int, person_keypoints[pair[1]][:2]))
-                                cv2.line(vis_image, pt1, pt2, (255, 0, 0), 1)
-                        except Exception as e:
-                            logger.warning(f"Error drawing connection {pair}: {str(e)}")
-                            continue
-                    
-                    # Draw keypoints
-                    for kp_idx, kp in enumerate(person_keypoints):
-                        try:
-                            if len(kp) > 2 and kp[2] > 0.5:
-                                cv2.circle(vis_image, (int(kp[0]), int(kp[1])), 
-                                         3, (0, 0, 255), -1)
-                        except Exception as e:
-                            logger.warning(f"Error drawing keypoint {kp_idx}: {str(e)}")
-                            continue
-                except Exception as e:
-                    logger.warning(f"Error processing person {person_idx}: {str(e)}")
-                    continue
-        
-        return vis_image
-    except Exception as e:
-        logger.error(f"Error in visualize_detections: {str(e)}", exc_info=True)
-        return image
+                        # Draw keypoints
+                        for kp_idx, kp in enumerate(person_keypoints):
+                            try:
+                                if len(kp) > 2 and kp[2] > 0.5:
+                                    cv2.circle(vis_image, (int(kp[0]), int(kp[1])), 
+                                            3, (0, 0, 255), -1)
+                            except Exception as e:
+                                logger.warning(f"Error drawing keypoint {kp_idx}: {str(e)}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Error processing person {person_idx}: {str(e)}")
+                        continue
+            
+            return vis_image
+        except Exception as e:
+            logger.error(f"Error in visualize_detections: {str(e)}", exc_info=True)
+            return image
 
     def save_detection_data(self, keypoint_outputs, object_outputs):
         try:
