@@ -10,39 +10,53 @@ class CombinedTracker:
         self.trajectories: Dict[int, List[Tuple[float, float]]] = {}
         self.position_predictor = PositionPredictor()
 
-    def update(self, frame: np.ndarray, keypoints: List[List[float]], bounding_boxes: List[List[float]]) -> Tuple[List[List[float]], List[List[float]]]:
+    def update(self, frame: np.ndarray, keypoints: List[List[float]], bounding_boxes: List[List[float]] = None) -> List[List[float]]:
+        """
+        Update tracking with new frame data
+        Args:
+            frame: Current video frame
+            keypoints: List of keypoint sets for each detected person
+            bounding_boxes: Optional list of bounding boxes for each person
+        """
         updated_keypoints = []
-        updated_boxes = []
+        
+        if bounding_boxes is None:
+            # If no bounding boxes provided, create from keypoints
+            bounding_boxes = [self.keypoint_to_box(kps) for kps in keypoints]
+        
+        for player_id, (keypoint, bbox) in enumerate(zip(keypoints, bounding_boxes)):
+            try:
+                if player_id not in self.trackers or self.should_reinitialize(player_id):
+                    success = self._initialize_tracker(player_id, frame, keypoint)
+                    if not success:
+                        updated_keypoints.append(keypoint)
+                        continue
 
-        for player_id, (keypoint, box) in enumerate(zip(keypoints, bounding_boxes)):
-            if player_id not in self.kalman_filters:
-                self._initialize_kalman_filter(player_id, keypoint, box)
+                # Update tracking
+                if player_id in self.trackers:
+                    success, box = self.trackers[player_id].update(frame)
+                else:
+                    success = False
 
-            kf = self.kalman_filters[player_id]
-            kf.predict()
+                if success:
+                    # Use Kalman filter
+                    center_x = box[0] + box[2] / 2
+                    center_y = box[1] + box[3] / 2
+                    self.kalman_filters[player_id].predict()
+                    self.kalman_filters[player_id].update(np.array([[center_x], [center_y]]))
+                    estimated_state = self.kalman_filters[player_id].x
+                    updated_keypoint = self.update_keypoint_with_estimate(keypoint, estimated_state)
+                else:
+                    updated_keypoint = self.update_fallback_tracker(player_id, keypoint)
 
-            # Use the center of the bounding box as measurement
-            center_x = (box[0] + box[2]) / 2
-            center_y = (box[1] + box[3]) / 2
-            measurement = np.array([[center_x], [center_y]])
+                updated_keypoints.append(updated_keypoint)
+                self.last_reinitialization[player_id] += 1
 
-            kf.update(measurement)
+            except Exception as e:
+                logger.error(f"Error updating tracker for player {player_id}: {str(e)}")
+                updated_keypoints.append(keypoint)
 
-            # Update trajectory
-            if player_id not in self.trajectories:
-                self.trajectories[player_id] = []
-            self.trajectories[player_id].append((center_x, center_y))
-            if len(self.trajectories[player_id]) > 30:  # Keep only last 30 points
-                self.trajectories[player_id].pop(0)
-
-            # Update keypoints and bounding box based on Kalman filter estimate
-            updated_kp = self._update_keypoints(keypoint, kf.x[:2].flatten())
-            updated_box = self._update_bounding_box(box, kf.x[:2].flatten())
-
-            updated_keypoints.append(updated_kp)
-            updated_boxes.append(updated_box)
-
-        return updated_keypoints, updated_boxes
+        return updated_keypoints
 
     def _initialize_kalman_filter(self, player_id: int, keypoint: List[float], box: List[float]):
         kf = KalmanFilter(dim_x=4, dim_z=2)  # State: [x, y, dx, dy], Measurement: [x, y]
