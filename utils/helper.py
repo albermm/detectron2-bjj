@@ -331,74 +331,76 @@ class VideoProcessor:
 
 
     def process_video(self, video_path: str, output_path: str, job_id: str, user_id: str, progress_callback: callable) -> Tuple[List[Dict], str]:
-        # Initialize variables
-        cap = None
-        out = None
-        positions: List[Dict] = []
-        processed_video_path = ""
-        current_positions = {}
-        start_times = {}
-        processed_frames = 0
-        successful_detections = 0
+    # Initialize variables
+    cap = None
+    out = None
+    positions: List[Dict] = []
+    processed_video_path = ""
+    current_positions = {}
+    start_times = {}
+    processed_frames = 0
+    successful_detections = 0
 
-        try:
-            # Verify initialization
-            if not hasattr(self, 'predictor') or not hasattr(self, 'tracker'):
-                raise AttributeError("Predictor or tracker not initialized")
+    try:
+        # Verify initialization
+        if not hasattr(self, 'predictor') or not hasattr(self, 'tracker'):
+            raise AttributeError("Predictor or tracker not initialized")
 
-            # Open video capture
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError(f"Failed to open video file: {video_path}")
+        # Open video capture
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Failed to open video file: {video_path}")
 
-            # Get video properties
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            frame_skip = max(1, int(fps * self.frame_interval))
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_skip = max(1, int(fps * self.frame_interval))
 
-            logger.info(f"Video properties: FPS={fps}, Total Frames={frame_count}, "
-                    f"Width={frame_width}, Height={frame_height}, Frame skip={frame_skip}")
+        logger.info(f"Video properties: FPS={fps}, Total Frames={frame_count}, "
+                   f"Width={frame_width}, Height={frame_height}, Frame skip={frame_skip}")
 
-            # Initialize video writer
-            processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
-            if not out.isOpened():
-                raise ValueError("Failed to create output video writer")
+        # Initialize video writer
+        processed_video_path = os.path.join(output_path, f"{job_id}_processed.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(processed_video_path, fourcc, fps, (frame_width, frame_height))
+        if not out.isOpened():
+            raise ValueError("Failed to create output video writer")
 
-            # Define visualization parameters
-            colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
-            pose_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), (6, 7), 
-                        (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
+        # Define visualization parameters
+        colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
+        pose_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), (6, 7), 
+                     (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
 
-            for frame_number in range(0, frame_count, frame_skip):
-                try:
-                    # Read frame
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-                    ret, frame = cap.read()
-                    if not ret:
-                        logger.warning(f"Failed to read frame {frame_number}")
-                        break
+        for frame_number in range(0, frame_count, frame_skip):
+            try:
+                # Read frame
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning(f"Failed to read frame {frame_number}")
+                    break
 
-                    processed_frames += 1
-                    timestamp = timedelta(seconds=frame_number / fps)
+                processed_frames += 1
+                timestamp = timedelta(seconds=frame_number / fps)
 
-                    # Process frame
-                    keypoint_frame, keypoints, _, object_outputs = self.predictor.on_image(
-                        frame, f"{output_path}/frame_{frame_number}")
-                    
-                    # Extract bounding boxes
-                    bounding_boxes = object_outputs.pred_boxes.tensor.cpu().numpy() if object_outputs is not None else []
+                # Process frame
+                frame_copy = frame.copy()  # Create a copy for visualization
+                keypoint_frame, keypoints, _, object_outputs = self.predictor.on_image(
+                    frame, f"{output_path}/frame_{frame_number}")
+                
+                # Extract bounding boxes with fixed handling
+                bounding_boxes = []
+                if object_outputs is not None and hasattr(object_outputs, 'pred_boxes'):
+                    boxes = object_outputs.pred_boxes.tensor.cpu().numpy()
+                    scores = object_outputs.scores.cpu().numpy()
+                    bounding_boxes = [[box, score] for box, score in zip(boxes, scores)]
 
-                    # Update tracking
-                    if keypoints and bounding_boxes and len(keypoints) == len(bounding_boxes):
-                        updated_keypoints, updated_boxes = self.tracker.update(frame, keypoints, bounding_boxes)
-                        successful_detections += 1
-                    else:
-                        logger.warning(f"Invalid detections in frame {frame_number}")
-                        continue
+                # Update tracking
+                if keypoints and bounding_boxes and len(keypoints) > 0:
+                    updated_keypoints, updated_boxes = self.tracker.update(frame_copy, keypoints, bounding_boxes)
+                    successful_detections += 1
 
                     # Detect interactions
                     interactions = self.detect_interactions(updated_boxes)
@@ -410,7 +412,7 @@ class VideoProcessor:
                             
                             # Draw bounding box
                             x1, y1, x2, y2 = box[0]
-                            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+                            cv2.rectangle(frame_copy, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
                             
                             # Calculate keypoint quality and detect occlusions
                             keypoint_quality = self.calculate_keypoint_quality(np.array(keypoint))
@@ -427,11 +429,11 @@ class VideoProcessor:
                             status_text = f"Player {player_id}: {smoothed_position}"
                             if occluded:
                                 status_text += " (Occluded)"
-                            cv2.putText(frame, status_text, (int(x1), int(y1)-10), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                            cv2.putText(frame_copy, status_text, (int(x1), int(y1)-10), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                             
                             # Draw keypoints and connections
-                            self.draw_keypoints_and_connections(frame, keypoint, color, pose_pairs)
+                            self.draw_keypoints_and_connections(frame_copy, keypoint, color, pose_pairs)
 
                             # Update position data
                             if player_id not in current_positions or smoothed_position != current_positions[player_id]:
@@ -456,58 +458,61 @@ class VideoProcessor:
                             continue
 
                     # Draw interaction lines
-                    self.draw_interactions(frame, interactions, updated_boxes)
+                    self.draw_interactions(frame_copy, interactions, updated_boxes)
 
-                    # Write processed frame
-                    out.write(frame)
-                    progress_callback(frame_number / frame_count * 100)
+                    # Write the processed frame
+                    out.write(frame_copy)
+                else:
+                    logger.warning(f"Invalid detections in frame {frame_number}")
+                    out.write(frame)  # Write original frame if processing fails
 
-                except Exception as e:
-                    logger.error(f"Error processing frame {frame_number}: {str(e)}")
-                    if frame is not None:
-                        out.write(frame)  # Write original frame if processing fails
-                    continue
+                progress_callback(frame_number / frame_count * 100)
 
-            # Add final positions
-            for player_id, position in current_positions.items():
-                try:
-                    if player_id < len(updated_keypoints):
-                        keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
-                        smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(
-                            position, confidence)
-                        occluded = self.detect_occlusion(updated_keypoints[player_id], updated_boxes)
-                        positions.append({
-                            'position': smoothed_position,
-                            'start_time': start_times[player_id],
-                            'end_time': timedelta(seconds=frame_count / fps),
-                            'player_id': player_id,
-                            'confidence': smoothed_confidence,
-                            'keypoint_quality': keypoint_quality,
-                            'is_smoothed': True,
-                            'bounding_box': updated_boxes[player_id][0].tolist(),
-                            'keypoints': updated_keypoints[player_id],
-                            'occluded': occluded
-                        })
-                except Exception as e:
-                    logger.error(f"Error adding final position for player {player_id}: {str(e)}")
-                    continue
+            except Exception as e:
+                logger.error(f"Error processing frame {frame_number}: {str(e)}")
+                if frame is not None:
+                    out.write(frame)  # Write original frame if processing fails
+                continue
 
-            logger.info(f"Video processing completed. Total frames: {frame_count}, "
-                    f"Processed frames: {processed_frames}, "
-                    f"Successful detections: {successful_detections}")
-            logger.info(f"Total positions detected: {len(positions)}")
-            return positions, processed_video_path
+        # Add final positions
+        for player_id, position in current_positions.items():
+            try:
+                if player_id < len(updated_keypoints):
+                    keypoint_quality = self.calculate_keypoint_quality(np.array(updated_keypoints[player_id]))
+                    smoothed_position, smoothed_confidence = self.position_smoothers[player_id].update(
+                        position, confidence)
+                    occluded = self.detect_occlusion(updated_keypoints[player_id], updated_boxes)
+                    positions.append({
+                        'position': smoothed_position,
+                        'start_time': start_times[player_id],
+                        'end_time': timedelta(seconds=frame_count / fps),
+                        'player_id': player_id,
+                        'confidence': smoothed_confidence,
+                        'keypoint_quality': keypoint_quality,
+                        'is_smoothed': True,
+                        'bounding_box': updated_boxes[player_id][0].tolist(),
+                        'keypoints': updated_keypoints[player_id],
+                        'occluded': occluded
+                    })
+            except Exception as e:
+                logger.error(f"Error adding final position for player {player_id}: {str(e)}")
+                continue
 
-        except Exception as e:
-            logger.error(f"Error in process_video: {str(e)}", exc_info=True)
-            raise
+        logger.info(f"Video processing completed. Total frames: {frame_count}, "
+                   f"Processed frames: {processed_frames}, "
+                   f"Successful detections: {successful_detections}")
+        logger.info(f"Total positions detected: {len(positions)}")
+        return positions, processed_video_path
 
-        finally:
-            if cap is not None:
-                cap.release()
-            if out is not None:
-                out.release()
+    except Exception as e:
+        logger.error(f"Error in process_video: {str(e)}", exc_info=True)
+        raise
 
+    finally:
+        if cap is not None:
+            cap.release()
+        if out is not None:
+            out.release()
 
 
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
