@@ -40,13 +40,19 @@ class Config:
     # Set the MODEL_PATH relative to the project root
     MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'trained_model.joblib')
     MAX_KEYPOINTS = 18
-    KEYPOINT_MEAN = 0.5  # Replace with actual value from model training
-    KEYPOINT_STD = 0.2   # Replace with actual value from model training
+    KEYPOINT_MEAN = 0.0  # Value from model trainer
+    KEYPOINT_STD = 1.0   # Value from model trainer
 
     # Keypoint configuration
     KEYPOINT_CONFIG = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"
-    KEYPOINT_THRESHOLD = 0.7
+    KEYPOINT_THRESHOLD = 0.1
+    KEYPOINT_VIZ_THRESHOLD = 0.1  # For visualization
     BOUNDING_BOX_CONFIG = "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+    BOX_THRESHOLD = 0.3  # For bounding boxes
+
+    # Quality thresholds
+    MIN_KEYPOINT_QUALITY = 0.1  # Minimum quality to consider keypoints valid
+    MIN_TRACKING_QUALITY = 0.2  # Minimum quality for tracking
 
     # File type configuration
     VIDEO_EXTENSIONS = ('.mp4', '.mov', '.avi')

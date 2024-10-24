@@ -46,7 +46,7 @@ class Predictor:
         self.cfg_obj = get_cfg()
         self.cfg_obj.merge_from_file(model_zoo.get_config_file(Config.BOUNDING_BOX_CONFIG))
         self.cfg_obj.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(Config.BOUNDING_BOX_CONFIG)
-        self.cfg_obj.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+        self.cfg_obj.MODEL.ROI_HEADS.SCORE_THRESH_TEST = Config.BOX_THRESHOLD
         self.cfg_obj.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         self.predictor_obj = DefaultPredictor(self.cfg_obj)
         logger.info(f"Object detection model configuration: {self.cfg_obj}")
@@ -110,81 +110,69 @@ class Predictor:
             logger.error(f"Error in predict_objects: {str(e)}", exc_info=True)
             return None
 
-    def visualize_detections(self, image, keypoints, bounding_boxes):
-        try:
-            if image is None:
-                logger.error("Input image is None")
-                return None
-                
-            vis_image = image.copy()
-            logger.debug(f"Visualizing detections: {len(keypoints) if keypoints else 0} keypoints, {len(bounding_boxes) if bounding_boxes else 0} boxes")
-            
-            # Draw bounding boxes
-            if bounding_boxes and isinstance(bounding_boxes, list):
-                for box_info in bounding_boxes:
-                    try:
-                        if isinstance(box_info, list) and len(box_info) >= 2:
-                            box = box_info[0]
-                            confidence = box_info[1]
-                            if isinstance(box, list) and len(box) == 4:
-                                x1, y1, x2, y2 = map(int, box)
-                                cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                                cv2.putText(vis_image, f"{confidence:.2f}", 
-                                        (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                        0.5, (0, 255, 0), 2)
-                            else:
-                                logger.warning(f"Invalid box format: {box}")
-                        else:
-                            logger.warning(f"Invalid box_info format: {box_info}")
-                    except Exception as e:
-                        logger.warning(f"Error drawing bounding box: {str(e)}")
-                        continue
-            
-            # Define keypoint connections for visualization
-            keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
-                            (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
-            
-            # Draw keypoints and connections
-            if keypoints and isinstance(keypoints, list):
-                for person_idx, person_keypoints in enumerate(keypoints):
-                    try:
-                        if not isinstance(person_keypoints, list):
-                            logger.warning(f"Invalid keypoints format for person {person_idx}")
-                            continue
-                            
-                        # Draw connections
-                        for pair in keypoint_pairs:
-                            try:
-                                if (len(person_keypoints) > max(pair) and 
-                                    len(person_keypoints[pair[0]]) > 2 and 
-                                    len(person_keypoints[pair[1]]) > 2 and 
-                                    person_keypoints[pair[0]][2] > 0.5 and 
-                                    person_keypoints[pair[1]][2] > 0.5):
-                                    
-                                    pt1 = tuple(map(int, person_keypoints[pair[0]][:2]))
-                                    pt2 = tuple(map(int, person_keypoints[pair[1]][:2]))
-                                    cv2.line(vis_image, pt1, pt2, (255, 0, 0), 1)
-                            except Exception as e:
-                                logger.warning(f"Error drawing connection {pair}: {str(e)}")
-                                continue
+    def visualize_detections(self, frame: np.ndarray, keypoints: List[List[float]], 
+                        bounding_boxes: List[List[float]], positions: Dict[int, str] = None) -> np.ndarray:
+        """
+        Visualize detections with configurable confidence threshold
+        """
+        frame_copy = frame.copy()
+        colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
+        keypoint_pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (1, 5), (5, 6), 
+                        (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13)]
+
+        logger.debug(f"Visualizing: {len(keypoints)} keypoints, {len(bounding_boxes)} boxes")
+
+        # Draw bounding boxes first
+        for idx, box_info in enumerate(bounding_boxes):
+            try:
+                color = colors[idx % len(colors)]
+                # Handle different box formats
+                if isinstance(box_info, list):
+                    box = box_info[0] if isinstance(box_info[0], list) else box_info
+                else:
+                    continue
+
+                x1, y1, x2, y2 = map(int, box[:4])
+                cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
+
+                # Add position label if available
+                if positions and idx in positions:
+                    label = f"Player {idx + 1}: {positions[idx]}"
+                    cv2.putText(frame_copy, label, (x1, y1 - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            except Exception as e:
+                logger.warning(f"Error drawing bounding box {idx}: {str(e)}")
+                continue
+
+        # Draw keypoints and connections using lower threshold
+        for idx, person_keypoints in enumerate(keypoints):
+            try:
+                color = colors[idx % len(colors)]
+                keypoint_array = np.array(person_keypoints).reshape(-1, 3)
+
+                # Draw connections
+                for pair in keypoint_pairs:
+                    if (pair[0] < len(keypoint_array) and 
+                        pair[1] < len(keypoint_array) and
+                        keypoint_array[pair[0], 2] > Config.KEYPOINT_VIZ_THRESHOLD and 
+                        keypoint_array[pair[1], 2] > Config.KEYPOINT_VIZ_THRESHOLD):
                         
-                        # Draw keypoints
-                        for kp_idx, kp in enumerate(person_keypoints):
-                            try:
-                                if len(kp) > 2 and kp[2] > 0.5:
-                                    cv2.circle(vis_image, (int(kp[0]), int(kp[1])), 
-                                            3, (0, 0, 255), -1)
-                            except Exception as e:
-                                logger.warning(f"Error drawing keypoint {kp_idx}: {str(e)}")
-                                continue
-                    except Exception as e:
-                        logger.warning(f"Error processing person {person_idx}: {str(e)}")
-                        continue
-            
-            return vis_image
-        except Exception as e:
-            logger.error(f"Error in visualize_detections: {str(e)}", exc_info=True)
-            return image
+                        pt1 = tuple(map(int, keypoint_array[pair[0], :2]))
+                        pt2 = tuple(map(int, keypoint_array[pair[1], :2]))
+                        cv2.line(frame_copy, pt1, pt2, color, 2)
+
+                # Draw keypoints
+                for kp in keypoint_array:
+                    if kp[2] > Config.KEYPOINT_VIZ_THRESHOLD:  # Use visualization threshold
+                        cv2.circle(frame_copy, 
+                                (int(kp[0]), int(kp[1])), 
+                                4, color, -1)
+
+            except Exception as e:
+                logger.warning(f"Error drawing keypoints for person {idx}: {str(e)}")
+                continue
+
+        return frame_copy
 
     def save_detection_data(self, keypoint_outputs, object_outputs):
         try:
@@ -233,29 +221,33 @@ class Predictor:
             logger.error(f"Error in save_detection_data: {str(e)}", exc_info=True)
             return [], []
 
-    def filter_low_confidence_detections(self, keypoints, bounding_boxes, keypoint_threshold=0.5, box_threshold=0.5):
+    def filter_low_confidence_detections(self, keypoints, bounding_boxes, 
+                                      keypoint_threshold=Config.KEYPOINT_VIZ_THRESHOLD,
+                                      box_threshold=Config.BOX_THRESHOLD):
+        """
+        Filter detections based on confidence with lower thresholds
+        """
         try:
             # Filter keypoints
             filtered_keypoints = []
             for person_keypoints in keypoints:
-                confident_keypoints = []
-                for kp in person_keypoints:
-                    if kp[2] > keypoint_threshold:  # kp[2] is confidence
-                        confident_keypoints.append(kp)
-                if confident_keypoints:  # Only add if there are confident keypoints
-                    filtered_keypoints.append(confident_keypoints)
+                quality = self.calculate_keypoint_quality(person_keypoints)
+                if quality >= Config.MIN_KEYPOINT_QUALITY:
+                    # Keep keypoints even with lower confidence for visualization
+                    confident_keypoints = [kp for kp in person_keypoints if kp[2] > keypoint_threshold]
+                    if confident_keypoints:
+                        filtered_keypoints.append(person_keypoints)
             
             # Filter bounding boxes
-            filtered_boxes = [box for box in bounding_boxes if box[1] > box_threshold]  # box[1] is confidence
+            filtered_boxes = [box for box in bounding_boxes if box[1] > box_threshold]
             
             logger.info(f"Filtered keypoints: {len(filtered_keypoints)} from {len(keypoints)}")
             logger.info(f"Filtered boxes: {len(filtered_boxes)} from {len(bounding_boxes)}")
             
             return filtered_keypoints, filtered_boxes
         except Exception as e:
-            logger.error(f"Error in filter_low_confidence_detections: {str(e)}", exc_info=True)
+            logger.error(f"Error in filter_low_confidence_detections: {str(e)}")
             return keypoints, bounding_boxes
-
     
 
     def on_image(self, input_path, output_path):
@@ -549,16 +541,45 @@ class VideoProcessor:
 
 
     def calculate_keypoint_quality(self, keypoints: np.ndarray) -> float:
-        if keypoints.size == 0:
+        """Calculate the overall quality of keypoint detections"""
+        try:
+            if isinstance(keypoints, list):
+                keypoints = np.array(keypoints)
+            
+            keypoints = keypoints.reshape(-1, 3)
+            confidences = keypoints[:, 2]
+            
+            # Calculate various quality metrics
+            valid_keypoints = confidences > Config.KEYPOINT_VIZ_THRESHOLD
+            num_valid = np.sum(valid_keypoints)
+            
+            if num_valid == 0:
+                return 0.0
+            
+            # Average confidence of valid keypoints
+            avg_confidence = np.mean(confidences[valid_keypoints])
+            
+            # Coverage (ratio of valid keypoints)
+            coverage = num_valid / len(keypoints)
+            
+            # Spatial distribution of valid keypoints
+            if num_valid > 2:
+                valid_positions = keypoints[valid_keypoints, :2]
+                hull = cv2.convexHull(valid_positions.astype(np.float32))
+                hull_area = cv2.contourArea(hull)
+                bbox_area = np.ptp(valid_positions[:, 0]) * np.ptp(valid_positions[:, 1])
+                spatial_score = min(hull_area / (bbox_area + 1e-6), 1.0)
+            else:
+                spatial_score = 0.0
+            
+            # Combine metrics
+            quality = (avg_confidence * 0.4 + coverage * 0.4 + spatial_score * 0.2)
+            return float(quality)
+
+        except Exception as e:
+            logger.error(f"Error calculating keypoint quality: {str(e)}")
             return 0.0
-        if keypoints.ndim == 1:
-            keypoints = keypoints.reshape(1, -1)
-        if keypoints.shape[1] % 3 != 0:
-            logger.warning(f"Unexpected keypoint shape: {keypoints.shape}")
-            return 0.0
-        keypoints = keypoints.reshape(-1, 3)
-        valid_keypoints = keypoints[keypoints[:, 2] > 0]
-        return len(valid_keypoints) / len(keypoints)
+
 
     def detect_interactions(self, bounding_boxes: List[List[float]]) -> List[Tuple[int, int]]:
         interactions = []
